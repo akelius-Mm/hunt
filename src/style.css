@@ -12,6 +12,7 @@
   --bad: #f07a62;
   --pixel: 'Pixelify Sans', 'Courier New', monospace;
   --read: 'Trebuchet MS', 'Segoe UI', sans-serif;
+  color-scheme: dark;
 }
 
 * { box-sizing: border-box; }
@@ -25,11 +26,13 @@ body {
   justify-content: center;
   align-items: center;
   min-height: 100vh;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
 }
 
 #frame {
   position: relative;
-  width: min(100vw, calc(100vh * 16 / 9));
+  width: min(calc(100vw - 32px), calc((100vh - 16px) * 16 / 9));
   aspect-ratio: 16 / 9;
   overflow: hidden;
   container-type: inline-size;

@@ -76,7 +76,13 @@ export function showCamp(state: GameState, actions: CampActions): void {
       case 'ed': return openHunterEd(state, refresh);
       case 'freezer': return openFreezer(state, refresh);
       case 'reset':
-        if (confirm('Delete your save and start over?')) actions.reset();
+        // Browser confirm dialogs are blocked in embedded pages, so confirm in place.
+        if (t.dataset.armed) actions.reset();
+        else {
+          t.dataset.armed = '1';
+          t.textContent = 'Click again to delete your progress';
+          t.style.color = 'var(--bad)';
+        }
     }
   });
   ui().append(menu);
