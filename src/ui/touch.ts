@@ -60,7 +60,7 @@ export function showTouch(actions: TouchActions): void {
       <button class="tbtn mini" data-t="call">📯</button>
       <button class="tbtn mini" data-t="stand">🌲</button>
       <button class="tbtn mini" data-t="swap">🔁</button>
-      <button class="tbtn mini" data-t="camp">⛺ Camp</button>
+      <button class="tbtn mini" data-t="camp" aria-label="Back to camp">⛺</button>
     </div>`;
   r.hidden = false;
   lastAiming = null;
