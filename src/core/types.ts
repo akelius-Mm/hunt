@@ -8,7 +8,7 @@ export interface WeaponStats {
   ammo: string;
   /** Effective, ethical range in yards. */
   rangeYards: number;
-  /** How much the reticle sways (pixels). Lower is steadier. */
+  /** How much the reticle sways, in screen pixels. Lower is steadier. */
   sway: number;
   firearm: boolean;
 }
@@ -69,7 +69,9 @@ export interface AnimalDef {
   sightYards: number;
   hearingYards: number;
   scentYards: number;
+  /** Yards per second. */
   walkSpeed: number;
+  /** Yards per second. */
   fleeSpeed: number;
   activity: Record<TimeOfDay, number>;
   loot: LootDrop[];

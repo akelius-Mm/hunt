@@ -1,13 +1,14 @@
 import type { AnimalDef, ZoneRect } from '../core/types';
 
 // Hit zones are in sprite pixel coordinates (see src/art/sprites.ts), sprite facing right.
+// tests/core.test.ts checks each zone covers the pixels it should.
 // They are checked in this order: head, vitals, legs, body. Anything else is a miss.
 
 const DEER_ZONES: ZoneRect[] = [
-  { zone: 'head', x0: 18, y0: 0, x1: 23, y1: 7 },
-  { zone: 'vitals', x0: 13, y0: 8, x1: 17, y1: 11 },
-  { zone: 'legs', x0: 3, y0: 13, x1: 19, y1: 16 },
-  { zone: 'body', x0: 2, y0: 7, x1: 19, y1: 12 },
+  { zone: 'head', x0: 20, y0: 0, x1: 31, y1: 11 },
+  { zone: 'vitals', x0: 16, y0: 13, x1: 21, y1: 18 },
+  { zone: 'legs', x0: 2, y0: 21, x1: 29, y1: 25 },
+  { zone: 'body', x0: 1, y0: 12, x1: 24, y1: 20 },
 ];
 
 const DEER_COMMON = {
@@ -18,8 +19,8 @@ const DEER_COMMON = {
   sightYards: 70,
   hearingYards: 90,
   scentYards: 160,
-  walkSpeed: 28,
-  fleeSpeed: 260,
+  walkSpeed: 7,
+  fleeSpeed: 65,
   activity: { dawn: 1, day: 0.25, dusk: 1 },
   meatLbs: 50,
   meatName: 'Venison',
@@ -37,17 +38,17 @@ export const ANIMALS: AnimalDef[] = [
     sightYards: 35,
     hearingYards: 35,
     scentYards: 10,
-    walkSpeed: 45,
-    fleeSpeed: 220,
+    walkSpeed: 11,
+    fleeSpeed: 55,
     activity: { dawn: 1, day: 0.6, dusk: 0.7 },
     loot: [{ item: 'squirrel-tail', qty: 1, chance: 1 }],
     meatLbs: 1,
     meatName: 'Squirrel',
     zones: [
-      { zone: 'head', x0: 6, y0: 1, x1: 10, y1: 4 },
-      { zone: 'vitals', x0: 6, y0: 5, x1: 8, y1: 7 },
-      { zone: 'legs', x0: 4, y0: 8, x1: 9, y1: 8 },
-      { zone: 'body', x0: 4, y0: 4, x1: 9, y1: 7 },
+      { zone: 'head', x0: 8, y0: 1, x1: 14, y1: 5 },
+      { zone: 'vitals', x0: 8, y0: 6, x1: 10, y1: 8 },
+      { zone: 'legs', x0: 4, y0: 10, x1: 12, y1: 11 },
+      { zone: 'body', x0: 5, y0: 5, x1: 12, y1: 9 },
     ],
     fieldGuide: [
       'Most active in the first hours after sunrise.',
@@ -65,17 +66,17 @@ export const ANIMALS: AnimalDef[] = [
     sightYards: 25,
     hearingYards: 30,
     scentYards: 15,
-    walkSpeed: 35,
-    fleeSpeed: 280,
+    walkSpeed: 9,
+    fleeSpeed: 70,
     activity: { dawn: 1, day: 0.4, dusk: 1 },
     loot: [{ item: 'rabbit-pelt', qty: 1, chance: 1 }],
     meatLbs: 2,
     meatName: 'Rabbit',
     zones: [
-      { zone: 'head', x0: 7, y0: 0, x1: 11, y1: 3 },
-      { zone: 'vitals', x0: 6, y0: 4, x1: 8, y1: 6 },
-      { zone: 'legs', x0: 1, y0: 7, x1: 9, y1: 7 },
-      { zone: 'body', x0: 0, y0: 3, x1: 10, y1: 6 },
+      { zone: 'head', x0: 7, y0: 0, x1: 13, y1: 5 },
+      { zone: 'vitals', x0: 7, y0: 6, x1: 10, y1: 8 },
+      { zone: 'legs', x0: 1, y0: 9, x1: 11, y1: 10 },
+      { zone: 'body', x0: 0, y0: 4, x1: 12, y1: 8 },
     ],
     fieldGuide: [
       'Lives on edges: where brush and brambles meet open fields.',
@@ -93,17 +94,17 @@ export const ANIMALS: AnimalDef[] = [
     sightYards: 90,
     hearingYards: 60,
     scentYards: 10,
-    walkSpeed: 30,
-    fleeSpeed: 240,
+    walkSpeed: 8,
+    fleeSpeed: 60,
     activity: { dawn: 1, day: 0.5, dusk: 0.4 },
     loot: [{ item: 'turkey-feathers', qty: 1, chance: 1 }],
     meatLbs: 12,
     meatName: 'Wild Turkey',
     zones: [
-      { zone: 'head', x0: 10, y0: 0, x1: 13, y1: 5 },
-      { zone: 'vitals', x0: 8, y0: 6, x1: 11, y1: 9 },
-      { zone: 'legs', x0: 5, y0: 12, x1: 9, y1: 14 },
-      { zone: 'body', x0: 4, y0: 6, x1: 12, y1: 11 },
+      { zone: 'head', x0: 13, y0: 0, x1: 19, y1: 6 },
+      { zone: 'vitals', x0: 11, y0: 9, x1: 14, y1: 12 },
+      { zone: 'legs', x0: 5, y0: 16, x1: 14, y1: 19 },
+      { zone: 'body', x0: 5, y0: 6, x1: 17, y1: 15 },
     ],
     fieldGuide: [
       'Superb eyesight, but a weak sense of smell. Stay still, wind matters less.',

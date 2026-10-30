@@ -72,7 +72,9 @@ describe('shot rules', () => {
   });
 
   it('rewards the vitals and punishes risky shots', () => {
-    expect(zoneAt(deer, 15, 9)).toBe('vitals');
+    expect(zoneAt(deer, 18, 15)).toBe('vitals');
+    expect(zoneAt(deer, 26, 6)).toBe('head');
+    expect(zoneAt(deer, 8, 15)).toBe('body');
     expect(resolveShot(deer, 'centerfire', 'vitals')).toMatchObject({ result: 'clean', quality: 'Prime' });
     expect(resolveShot(deer, 'centerfire', 'head').lesson).toBe('head-risk');
     expect(resolveShot(deer, 'centerfire', 'body').result).toBe('wounded');

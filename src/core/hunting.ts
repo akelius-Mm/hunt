@@ -2,7 +2,8 @@ import { item } from '../data/items';
 import { addItem, count, has } from './state';
 import type { AnimalDef, GameState, Quality, TimeOfDay, WeaponKind, Zone } from './types';
 
-export const PX_PER_YARD = 4;
+/** World pixels per yard. The screen is 480 px wide, so about 240 yards across. */
+export const PX_PER_YARD = 2;
 
 export const SUNRISE = 6.5;
 export const SUNSET = 18.5;

@@ -44,7 +44,7 @@ export function showCamp(state: GameState, actions: CampActions): void {
   clearUi();
   const weapon = state.equippedWeapon ? item(state.equippedWeapon).name : 'none';
   const menu = el(`
-    <div class="camp-menu">
+    <div class="camp-menu pix">
       <h1>Base Camp</h1>
       <div class="sub">Day ${state.day} · <span class="money">$${state.money}</span> · Carrying: ${weapon}</div>
       <button class="primary" data-a="hunt">🌲 Go hunting</button>
@@ -89,7 +89,7 @@ function nextStep(state: GameState): string {
 function modal(title: string, state: GameState, onClose: () => void): { root: HTMLElement; body: HTMLElement; setMoney(): void } {
   const back = el(`
     <div class="modal-back">
-      <div class="modal">
+      <div class="modal pix">
         <header><h2>${title}</h2><span class="money"></span><button data-close>Close ✕</button></header>
         <div class="tabs"></div>
         <div class="body"></div>
@@ -399,7 +399,7 @@ function openAreaSelect(state: GameState, actions: CampActions): void {
 }
 
 export function showSummary(lines: string[], onDone: () => void): void {
-  const box = el(`<div class="summary-box"><h2>Back at camp</h2>${lines.map((l) => `<p>${l}</p>`).join('')}<button class="primary">Continue</button></div>`);
+  const box = el(`<div class="summary-box pix"><h2>Back at camp</h2>${lines.map((l) => `<p>${l}</p>`).join('')}<button class="primary">Continue</button></div>`);
   box.querySelector('button')!.addEventListener('click', () => {
     box.remove();
     onDone();

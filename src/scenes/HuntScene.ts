@@ -1,5 +1,7 @@
 import Phaser from 'phaser';
-import { createTextures, LAYER_W, SCALE } from '../art/sprites';
+import { Backdrop } from '../art/backdrop';
+import { createSprites, frameKey } from '../art/sprites';
+import { GROUND_Y, VIEW_W } from '../art/view';
 import {
   checkShot,
   formatHour,
@@ -19,10 +21,9 @@ import { animal as animalDef, area as areaDef, type AreaDef } from '../data/anim
 import { item } from '../data/items';
 import { lesson } from '../data/lessons';
 import { note, teach } from '../ui/cards';
-import { VIEW_H, VIEW_W } from './CampScene';
+import { clearHud, setHud, setLabels, type Label } from '../ui/hud';
 
-const WORLD_W = 4800;
-const GROUND_Y = 432;
+const WORLD_W = 2400;
 const START_HOUR = 5.5;
 const END_HOUR = 19.5;
 /** A full day takes this many real seconds. */
@@ -33,8 +34,12 @@ const BREATH_SECONDS = 3;
 const FINE_NO_ORANGE = 40;
 /** Without binoculars, animals farther than this are hard to make out. */
 const CLEAR_SIGHT_YARDS = 110;
+const STAND_HEIGHT = 60;
+/** How close you must be to tag an animal or pick something up, in pixels. */
+const REACH = 24;
 
-const SPEED: Record<Movement, number> = { still: 0, sneak: 45, walk: 95, run: 210 };
+const SPEED: Record<Movement, number> = { still: 0, sneak: 22, walk: 46, run: 100 };
+const SMALL_GAME = ['rabbit', 'squirrel'];
 
 export interface HuntSummary {
   areaName: string;
@@ -56,12 +61,14 @@ type Mode = 'idle' | 'walk' | 'alert' | 'curious' | 'flee' | 'down';
 interface Animal {
   def: AnimalDef;
   sprite: Phaser.GameObjects.Image;
-  icon: Phaser.GameObjects.Text;
-  label: Phaser.GameObjects.Text;
+  icon: Phaser.GameObjects.Image;
   mode: Mode;
   dir: 1 | -1;
+  /** Ground x position; the sprite may hop above it. */
+  x: number;
   awareness: number;
   timer: number;
+  anim: number;
   quality?: Quality;
   weaponId?: string;
 }
@@ -71,17 +78,11 @@ export class HuntScene extends Phaser.Scene {
   private area!: AreaDef;
   private onEnd!: (s: HuntSummary) => void;
 
+  private backdrop!: Backdrop;
   private player!: Phaser.GameObjects.Image;
   private standGfx!: Phaser.GameObjects.Graphics;
   private scentGfx!: Phaser.GameObjects.Graphics;
   private reticle!: Phaser.GameObjects.Graphics;
-  private layers: [Phaser.GameObjects.TileSprite, number][] = [];
-  private sky!: Phaser.GameObjects.Rectangle;
-  private dark!: Phaser.GameObjects.Rectangle;
-  private glow!: Phaser.GameObjects.Rectangle;
-  private hud!: Phaser.GameObjects.Text;
-  private hint!: Phaser.GameObjects.Text;
-  private breathBar!: Phaser.GameObjects.Rectangle;
   private keys!: Record<string, Phaser.Input.Keyboard.Key>;
 
   private animals: Animal[] = [];
@@ -90,7 +91,6 @@ export class HuntScene extends Phaser.Scene {
   private windDir: 1 | -1 = 1;
   private windTimer = 0;
   private spawnTimer = 0;
-  private callCooldown = 0;
   private lastCall = -999;
   private crouched = false;
   private inStand = false;
@@ -100,6 +100,7 @@ export class HuntScene extends Phaser.Scene {
   private scentSpray = false;
   private facing: 1 | -1 = 1;
   private movement: Movement = 'still';
+  private walkAnim = 0;
   private taughtThisHunt = new Set<string>();
   private ended = false;
   private summary!: HuntSummary;
@@ -115,20 +116,20 @@ export class HuntScene extends Phaser.Scene {
     this.onEnd = data.onEnd;
     this.animals = [];
     this.sheds = [];
-    this.layers = [];
     this.hour = START_HOUR;
     this.windDir = Math.random() < 0.5 ? 1 : -1;
     this.windTimer = 60 + Math.random() * 60;
     this.spawnTimer = 0;
-    this.callCooldown = 0;
     this.lastCall = -999;
     this.crouched = false;
     this.inStand = false;
     this.aiming = false;
     this.glassing = false;
     this.breath = BREATH_SECONDS;
+    this.scentSpray = false;
     this.facing = 1;
     this.movement = 'still';
+    this.walkAnim = 0;
     this.taughtThisHunt = new Set();
     this.ended = false;
     this.lessonsAtStart = this.state.lessons.length;
@@ -136,21 +137,24 @@ export class HuntScene extends Phaser.Scene {
   }
 
   create(): void {
-    createTextures(this);
-    this.buildWorld();
+    createSprites(this);
+    this.backdrop = new Backdrop(this, { scrolling: true });
+    this.scentGfx = this.add.graphics().setDepth(5);
+    this.standGfx = this.add.graphics().setDepth(18);
+    this.reticle = this.add.graphics().setDepth(60);
 
-    this.player = this.add.image(300, GROUND_Y, has(this.state, 'orange-vest') ? 'hunter-orange' : 'hunter').setOrigin(0.5, 1).setDepth(20);
-    this.cameras.main.setBounds(0, 0, WORLD_W, VIEW_H);
-    this.cameras.main.startFollow(this.player, true, 0.12, 0.12, 0, 60);
+    this.player = this.add.image(150, GROUND_Y, this.playerKey('idle')).setOrigin(0.5, 1).setDepth(20);
+    this.cameras.main.setBounds(0, 0, WORLD_W, 270);
+    this.cameras.main.startFollow(this.player, true, 0.1, 0.1);
 
-    this.buildHud();
     this.bindInput();
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => clearHud());
 
-    for (let i = 0; i < 6; i++) this.spawnAnimal(Phaser.Math.Between(700, WORLD_W - 100));
+    for (let i = 0; i < 6; i++) this.spawnAnimal(Phaser.Math.Between(350, WORLD_W - 50));
     if (this.area.hasSheds) {
       for (let i = 0; i < 2; i++) {
         if (Math.random() < 0.6) {
-          this.sheds.push(this.add.image(Phaser.Math.Between(800, WORLD_W - 200), GROUND_Y + 6, 'shed').setOrigin(0.5, 1).setDepth(15).setAlpha(0.85));
+          this.sheds.push(this.add.image(Phaser.Math.Between(400, WORLD_W - 100), GROUND_Y + 1, frameKey('shed', 'idle')).setOrigin(0.5, 1).setDepth(15));
         }
       }
     }
@@ -159,32 +163,8 @@ export class HuntScene extends Phaser.Scene {
 
   // ---------- Setup ----------
 
-  private buildWorld(): void {
-    this.sky = this.add.rectangle(0, 0, VIEW_W, VIEW_H, 0x1d2a44).setOrigin(0).setScrollFactor(0).setDepth(-10);
-    const layer = (key: string, y: number, h: number, factor: number, depth: number, tint?: number) => {
-      const t = this.add.tileSprite(0, y, VIEW_W, h, key).setOrigin(0).setScrollFactor(0).setDepth(depth);
-      if (tint) t.setTint(tint);
-      this.layers.push([t, factor]);
-    };
-    layer('hills', 210, 220, 0.1, -9);
-    layer('far-trees', 170, 260, 0.3, -8);
-    layer('mid-trees', 92, 340, 0.6, -7);
-    layer('ground', GROUND_Y - 30, 140, 1, -6);
-    layer('bushes', VIEW_H - 70, 90, 1.25, 40, 0x9fb59a);
-
-    this.scentGfx = this.add.graphics().setDepth(5);
-    this.standGfx = this.add.graphics().setDepth(18);
-    this.reticle = this.add.graphics().setDepth(60);
-
-    this.glow = this.add.rectangle(0, 0, VIEW_W, VIEW_H, 0xff8a3a, 0).setOrigin(0).setScrollFactor(0).setDepth(45);
-    this.dark = this.add.rectangle(0, 0, VIEW_W, VIEW_H, 0x0a1022, 0).setOrigin(0).setScrollFactor(0).setDepth(46);
-  }
-
-  private buildHud(): void {
-    const style = { fontFamily: 'monospace', fontSize: '15px', color: '#ece6d6', backgroundColor: '#0009', padding: { x: 8, y: 6 } };
-    this.hud = this.add.text(10, 10, '', style).setScrollFactor(0).setDepth(100);
-    this.hint = this.add.text(VIEW_W / 2, VIEW_H - 14, '', { ...style, fontSize: '14px' }).setOrigin(0.5, 1).setScrollFactor(0).setDepth(100);
-    this.breathBar = this.add.rectangle(VIEW_W / 2 - 60, VIEW_H - 50, 120, 6, 0x8fc46b).setOrigin(0, 0.5).setScrollFactor(0).setDepth(100).setVisible(false);
+  private playerKey(frame: string): string {
+    return frameKey(has(this.state, 'orange-vest') ? 'orange' : 'hunter', frame);
   }
 
   private bindInput(): void {
@@ -242,13 +222,12 @@ export class HuntScene extends Phaser.Scene {
       this.windTimer = 60 + Math.random() * 60;
       note(`🍃 The wind shifted. It now blows to the ${this.windDir === 1 ? 'right →' : '← left'}.`);
     }
-    this.callCooldown = Math.max(0, this.callCooldown - dt);
 
     this.updatePlayer(dt);
     this.updateAnimals(dt);
     this.updateSpawns(dt);
-    this.updateLight();
-    this.updateParallax();
+    this.backdrop.update(this.hour, this.cameras.main.scrollX, dt, this.windDir);
+    this.applyLight();
     this.drawScent();
     this.drawReticle();
     this.updateHud();
@@ -269,104 +248,104 @@ export class HuntScene extends Phaser.Scene {
 
     if (dir !== 0) {
       this.facing = dir as 1 | -1;
-      this.player.x = Phaser.Math.Clamp(this.player.x + dir * SPEED[this.movement] * dt, 30, WORLD_W - 30);
+      this.player.x = Phaser.Math.Clamp(this.player.x + dir * SPEED[this.movement] * dt, 16, WORLD_W - 16);
     }
     this.player.setFlipX(this.facing === -1);
-    this.player.setScale(1, this.crouched ? 0.72 : 1);
-    this.player.y = this.inStand ? GROUND_Y - 120 : GROUND_Y;
-    if (this.movement !== 'still') this.player.y += Math.sin(this.time.now / 70) * 1.5;
+
+    // Walk cycle: step, stand, other step, stand.
+    this.walkAnim += dt * (this.movement === 'run' ? 12 : 7);
+    const cycle = ['walk1', 'idle', 'walk2', 'idle'];
+    const frame = this.crouched ? 'crouch' : this.movement === 'still' ? 'idle' : cycle[Math.floor(this.walkAnim) % 4];
+    this.player.setTexture(this.playerKey(frame));
+    this.player.y = this.inStand ? GROUND_Y - STAND_HEIGHT : GROUND_Y;
 
     // Holding your breath steadies your aim, but only for a few seconds.
     const holding = this.aiming && k.SPACE.isDown && this.breath > 0;
     this.breath = holding ? this.breath - dt : Math.min(BREATH_SECONDS, this.breath + dt * 0.8);
-    this.breathBar.setVisible(this.aiming).setScale(Math.max(0, this.breath / BREATH_SECONDS), 1);
-    this.breathBar.setFillStyle(this.breath > 0.5 ? 0x8fc46b : 0xe0675a);
   }
 
   private updateAnimals(dt: number): void {
     for (const a of [...this.animals]) {
-      const s = a.sprite;
-      const dx = s.x - this.player.x;
+      const dx = a.x - this.player.x;
       const distYards = Math.abs(dx) / PX_PER_YARD;
 
-      if (a.mode === 'down') {
-        a.icon.setText('');
-        a.label.setVisible(false);
-        continue;
-      }
+      if (a.mode === 'down') continue;
 
       if (a.mode === 'flee') {
-        s.x += a.dir * a.def.fleeSpeed * dt;
-        s.setFlipX(a.dir === -1);
-        if (s.x < -100 || s.x > WORLD_W + 100 || distYards > 260) this.removeAnimal(a);
-        this.syncAnimalText(a, distYards);
-        continue;
-      }
-
-      const sense = senses(a.def, {
-        distanceYards: distYards,
-        movement: this.movement,
-        inStand: this.inStand,
-        windDir: this.windDir,
-        animalSide: dx >= 0 ? 1 : -1,
-        scentSpray: this.scentSpray,
-      });
-      a.awareness = Math.max(0, a.awareness + (sense.perSecond > 0 ? sense.perSecond : -0.15) * dt);
-
-      if (a.awareness >= 1) {
-        this.spook(a, sense.cause);
-      } else if (a.awareness >= 0.5) {
-        a.mode = 'alert';
-        a.dir = dx >= 0 ? -1 : 1;
-      } else if (a.mode === 'alert') {
-        a.mode = 'idle';
-        a.timer = 1;
-      } else if (a.mode === 'curious') {
-        a.timer -= dt;
-        a.dir = dx >= 0 ? -1 : 1;
-        if (distYards > 25) s.x += a.dir * a.def.walkSpeed * 1.3 * dt;
-        if (a.timer <= 0) a.mode = 'idle';
+        a.x += a.dir * a.def.fleeSpeed * PX_PER_YARD * dt;
+        if (a.x < -60 || a.x > WORLD_W + 60 || distYards > 260) {
+          this.removeAnimal(a);
+          continue;
+        }
       } else {
-        a.timer -= dt;
-        if (a.timer <= 0) {
-          a.mode = Math.random() < 0.5 ? 'idle' : 'walk';
-          a.timer = 2 + Math.random() * 4;
-          if (a.mode === 'walk' && Math.random() < 0.5) a.dir = a.dir === 1 ? -1 : 1;
-        }
-        if (a.mode === 'walk') {
-          s.x += a.dir * a.def.walkSpeed * dt;
-          if (s.x < 60 || s.x > WORLD_W - 60) a.dir = a.dir === 1 ? -1 : 1;
+        const sense = senses(a.def, {
+          distanceYards: distYards,
+          movement: this.movement,
+          inStand: this.inStand,
+          windDir: this.windDir,
+          animalSide: dx >= 0 ? 1 : -1,
+          scentSpray: this.scentSpray,
+        });
+        a.awareness = Math.max(0, a.awareness + (sense.perSecond > 0 ? sense.perSecond : -0.15) * dt);
+
+        if (a.awareness >= 1) {
+          this.spook(a, sense.cause);
+        } else if (a.awareness >= 0.5) {
+          a.mode = 'alert';
+          a.dir = dx >= 0 ? -1 : 1;
+        } else if (a.mode === 'alert') {
+          a.mode = 'idle';
+          a.timer = 1;
+        } else if (a.mode === 'curious') {
+          a.timer -= dt;
+          a.dir = dx >= 0 ? -1 : 1;
+          if (distYards > 25) a.x += a.dir * a.def.walkSpeed * 1.3 * PX_PER_YARD * dt;
+          if (a.timer <= 0) a.mode = 'idle';
+        } else {
+          a.timer -= dt;
+          if (a.timer <= 0) {
+            a.mode = Math.random() < 0.5 ? 'idle' : 'walk';
+            a.timer = 2 + Math.random() * 4;
+            if (a.mode === 'walk' && Math.random() < 0.5) a.dir = a.dir === 1 ? -1 : 1;
+          }
+          if (a.mode === 'walk') {
+            a.x += a.dir * a.def.walkSpeed * PX_PER_YARD * dt;
+            if (a.x < 30 || a.x > WORLD_W - 30) a.dir = a.dir === 1 ? -1 : 1;
+          }
         }
       }
-      s.setFlipX(a.dir === -1);
 
-      if (distYards < 70 && this.onScreen(s.x) && !this.state.seenAnimals.includes(a.def.id)) {
+      if (distYards < 70 && this.onScreen(a.x) && !this.state.seenAnimals.includes(a.def.id)) {
         this.state.seenAnimals.push(a.def.id);
         note(`📓 New field guide entry: ${a.def.name}.`);
       }
-      this.syncAnimalText(a, distYards);
+      this.animateAnimal(a, dt, distYards);
     }
   }
 
-  private syncAnimalText(a: Animal, distYards: number): void {
+  private animateAnimal(a: Animal, dt: number, distYards: number): void {
     const s = a.sprite;
-    a.icon.setPosition(s.x, s.y - s.displayHeight - 4);
-    a.icon.setText(a.mode === 'flee' ? '!' : a.mode === 'alert' ? '?' : '');
+    const moving = a.mode === 'walk' || a.mode === 'flee' || (a.mode === 'curious' && distYards > 25);
+    a.anim += dt * (a.mode === 'flee' ? 12 : 5);
+    s.setTexture(frameKey(a.def.id, moving && Math.floor(a.anim) % 2 ? 'walk' : 'idle'));
+    s.setFlipX(a.dir === -1);
+    // Small game hops; deer bound when running.
+    const hops = SMALL_GAME.includes(a.def.id) || a.mode === 'flee';
+    const hop = moving && hops ? Math.round(Math.abs(Math.sin(a.anim * Math.PI * 0.5)) * (a.mode === 'flee' ? 5 : 2)) : 0;
+    s.setPosition(Math.round(a.x), GROUND_Y - hop);
+
     const far = distYards > CLEAR_SIGHT_YARDS && !this.glassing;
-    s.setAlpha(far ? 0.35 : 1);
-    a.label.setVisible(this.glassing && a.mode !== 'flee');
-    if (this.glassing) {
-      const check = checkShot(this.state, a.def, this.state.equippedWeapon, distYards, this.hour);
-      a.label.setText(`${a.def.name}\n${Math.round(distYards)} yd · ${check.ok ? 'can shoot' : lesson(check.lesson!).title}`);
-      a.label.setPosition(s.x, s.y - s.displayHeight - 22);
-    }
+    s.setAlpha(far ? 0.45 : 1);
+    a.icon.setPosition(Math.round(a.x), Math.round(s.y - s.height - 3));
+    a.icon.setVisible(a.mode === 'flee' || a.mode === 'alert');
+    a.icon.setTexture(frameKey('icon', a.mode === 'flee' ? 'flee' : 'alert'));
   }
 
   private spook(a: Animal, cause: Sense | null): void {
     if (a.mode === 'flee' || a.mode === 'down') return;
     a.mode = 'flee';
-    a.dir = a.sprite.x >= this.player.x ? 1 : -1;
-    if (cause && this.onScreen(a.sprite.x)) this.teachOnce(cause);
+    a.dir = a.x >= this.player.x ? 1 : -1;
+    if (cause && this.onScreen(a.x)) this.teachOnce(cause);
   }
 
   private updateSpawns(dt: number): void {
@@ -376,12 +355,13 @@ export class HuntScene extends Phaser.Scene {
     const alive = this.animals.filter((a) => a.mode !== 'down').length;
     if (alive >= MAX_ANIMALS) return;
     const tod = timeOfDay(this.hour);
-    const avgActivity = Object.keys(this.area.spawns).reduce((sum, id) => sum + animalDef(id).activity[tod], 0) / Object.keys(this.area.spawns).length;
+    const ids = Object.keys(this.area.spawns);
+    const avgActivity = ids.reduce((sum, id) => sum + animalDef(id).activity[tod], 0) / ids.length;
     if (Math.random() > avgActivity * 0.7) return;
     // Spawn just out of view so animals walk in rather than pop up.
     const cam = this.cameras.main;
-    const side = Math.random() < 0.5 ? cam.scrollX - 120 : cam.scrollX + VIEW_W + 120;
-    this.spawnAnimal(Phaser.Math.Clamp(side, 60, WORLD_W - 60));
+    const side = Math.random() < 0.5 ? cam.scrollX - 60 : cam.scrollX + VIEW_W + 60;
+    this.spawnAnimal(Phaser.Math.Clamp(side, 30, WORLD_W - 30));
   }
 
   private spawnAnimal(x: number): void {
@@ -398,20 +378,14 @@ export class HuntScene extends Phaser.Scene {
       }
     }
     const def = animalDef(id);
-    const sprite = this.add.image(x, GROUND_Y, id).setOrigin(0.5, 1).setDepth(10);
-    const icon = this.add.text(x, 0, '', { fontFamily: 'monospace', fontSize: '20px', color: '#ffd27a', stroke: '#000', strokeThickness: 4 }).setOrigin(0.5, 1).setDepth(30);
-    const label = this.add
-      .text(x, 0, '', { fontFamily: 'monospace', fontSize: '12px', color: '#fff', backgroundColor: '#000a', padding: { x: 4, y: 2 }, align: 'center' })
-      .setOrigin(0.5, 1)
-      .setDepth(31)
-      .setVisible(false);
-    this.animals.push({ def, sprite, icon, label, mode: 'idle', dir: Math.random() < 0.5 ? 1 : -1, awareness: 0, timer: Math.random() * 3 });
+    const sprite = this.add.image(x, GROUND_Y, frameKey(id, 'idle')).setOrigin(0.5, 1).setDepth(10);
+    const icon = this.add.image(x, 0, frameKey('icon', 'alert')).setOrigin(0.5, 1).setDepth(30).setVisible(false);
+    this.animals.push({ def, sprite, icon, mode: 'idle', dir: Math.random() < 0.5 ? 1 : -1, x, awareness: 0, timer: Math.random() * 3, anim: Math.random() * 4 });
   }
 
   private removeAnimal(a: Animal): void {
     a.sprite.destroy();
     a.icon.destroy();
-    a.label.destroy();
     this.animals = this.animals.filter((x) => x !== a);
   }
 
@@ -477,7 +451,7 @@ export class HuntScene extends Phaser.Scene {
       return;
     }
 
-    const distYards = Math.abs(target.sprite.x - this.player.x) / PX_PER_YARD;
+    const distYards = Math.abs(target.x - this.player.x) / PX_PER_YARD;
     const check = checkShot(this.state, target.def, weaponItem.id, distYards, this.hour);
     if (!check.ok) {
       note('✋ You lower your weapon.');
@@ -488,41 +462,39 @@ export class HuntScene extends Phaser.Scene {
     this.shotEffects(pt, w.firearm, target);
 
     const s = target.sprite;
-    let col = Math.floor((pt.x - (s.x - s.displayWidth / 2)) / SCALE);
-    const row = Math.floor((pt.y - (s.y - s.displayHeight)) / SCALE);
-    if (s.flipX) col = s.width / SCALE - 1 - col;
+    let col = Math.floor(pt.x - (s.x - s.width / 2));
+    const row = Math.floor(pt.y - (s.y - s.height));
+    if (s.flipX) col = s.width - 1 - col;
     const result = resolveShot(target.def, w.kind, zoneAt(target.def, col, row));
 
     if (result.result === 'clean') {
       target.mode = 'down';
       target.quality = result.quality;
       target.weaponId = weaponItem.id;
-      this.tweens.add({ targets: s, scaleY: 0.45, duration: 400 });
-      s.setAlpha(1).setTint(0xbbbbbb);
+      s.setTexture(frameKey(target.def.id, 'idle')).setFlipY(true).setPosition(Math.round(target.x), GROUND_Y + 2).setAlpha(1);
+      target.icon.setVisible(false);
     } else {
       target.mode = 'flee';
-      target.dir = s.x >= this.player.x ? 1 : -1;
-      if (result.result === 'wounded') {
-        s.setTint(0xff9999);
-        note(`The ${target.def.name.toLowerCase()} was wounded and ran off.`);
-      }
+      target.dir = target.x >= this.player.x ? 1 : -1;
+      if (result.result === 'wounded') note(`The ${target.def.name.toLowerCase()} was wounded and ran off.`);
     }
     this.teachOnce(result.lesson, true);
   }
 
   private shotEffects(pt: Phaser.Math.Vector2, firearm: boolean, target?: Animal): void {
-    const flash = this.add.circle(this.player.x + this.facing * 26, this.player.y - 38 * this.player.scaleY, firearm ? 8 : 3, 0xfff1a8).setDepth(25);
-    this.tweens.add({ targets: flash, alpha: 0, scale: 2, duration: 120, onComplete: () => flash.destroy() });
-    const puff = this.add.circle(pt.x, pt.y, 4, 0xffffff, 0.8).setDepth(26);
-    this.tweens.add({ targets: puff, alpha: 0, scale: 3, duration: 300, onComplete: () => puff.destroy() });
-    if (firearm) this.cameras.main.shake(120, 0.004);
+    const muzzleY = this.player.y - (this.crouched ? 8 : 11);
+    const flash = this.add.rectangle(Math.round(this.player.x + this.facing * 10), muzzleY, firearm ? 4 : 2, firearm ? 3 : 1, 0xfff1a8).setDepth(25);
+    this.tweens.add({ targets: flash, alpha: 0, duration: 90, onComplete: () => flash.destroy() });
+    const puff = this.add.rectangle(Math.round(pt.x), Math.round(pt.y), 2, 2, 0xffffff, 0.9).setDepth(26);
+    this.tweens.add({ targets: puff, alpha: 0, duration: 250, onComplete: () => puff.destroy() });
+    if (firearm) this.cameras.main.shake(120, 0.006);
 
     // Noise spooks animals nearby: a gunshot carries much farther than a bowstring.
     const range = (firearm ? 160 : 30) * PX_PER_YARD;
     let spooked = false;
     for (const a of this.animals) {
       if (a === target || a.mode === 'down' || a.mode === 'flee') continue;
-      if (Math.abs(a.sprite.x - this.player.x) < range) {
+      if (Math.abs(a.x - this.player.x) < range) {
         this.spook(a, null);
         spooked = true;
       }
@@ -530,9 +502,12 @@ export class HuntScene extends Phaser.Scene {
     if (spooked && firearm) this.teachOnce('gunshot');
   }
 
+  private near(x: number): boolean {
+    return Math.abs(x - this.player.x) < REACH && !this.inStand;
+  }
+
   private interact(): void {
-    const near = (x: number) => Math.abs(x - this.player.x) < 50 && !this.inStand;
-    const down = this.animals.find((a) => a.mode === 'down' && near(a.sprite.x));
+    const down = this.animals.find((a) => a.mode === 'down' && this.near(a.x));
     if (down) {
       if (down.def.tag && !has(this.state, down.def.tag)) return this.teachOnce('no-tag', true);
       const r = harvest(this.state, down.def, down.quality!, down.weaponId!);
@@ -540,12 +515,12 @@ export class HuntScene extends Phaser.Scene {
       this.summary.meatLbs += r.meatLbs;
       for (const [id, q] of Object.entries(r.items)) this.summary.items[id] = (this.summary.items[id] ?? 0) + q;
       const got = Object.entries(r.items).map(([id, q]) => `${item(id).name} ×${q}`).join(', ');
-      note(`${down.def.tag ? `🏷️ Tagged. ` : ''}Field dressed: ${got || 'no parts'} + ${r.meatLbs} lbs ${down.def.meatName.toLowerCase()}.`);
+      note(`${down.def.tag ? '🏷️ Tagged. ' : ''}Field dressed: ${got || 'no parts'} + ${r.meatLbs} lbs ${down.def.meatName.toLowerCase()}.`);
       for (const l of r.lessons) this.teachOnce(l);
       this.tweens.add({ targets: down.sprite, alpha: 0, duration: 500, onComplete: () => this.removeAnimal(down) });
       return;
     }
-    const shed = this.sheds.find((s) => near(s.x));
+    const shed = this.sheds.find((s) => this.near(s.x));
     if (shed) {
       addItem(this.state, 'shed-antler', 1);
       this.summary.items['shed-antler'] = (this.summary.items['shed-antler'] ?? 0) + 1;
@@ -569,7 +544,7 @@ export class HuntScene extends Phaser.Scene {
     let answered = 0;
     for (const a of this.animals) {
       if (!targets.includes(a.def.id) || a.mode === 'down' || a.mode === 'flee') continue;
-      if (Math.abs(a.sprite.x - this.player.x) / PX_PER_YARD > 220) continue;
+      if (Math.abs(a.x - this.player.x) / PX_PER_YARD > 220) continue;
       if (tooSoon) a.awareness += 0.35;
       else if (a.mode !== 'alert') {
         a.mode = 'curious';
@@ -592,10 +567,13 @@ export class HuntScene extends Phaser.Scene {
     if (!has(this.state, 'harness')) return this.teachOnce('harness', true);
     this.inStand = true;
     this.crouched = false;
-    const x = this.player.x - this.facing * 18;
-    this.standGfx.clear();
-    this.standGfx.fillStyle(0x4a3424).fillRect(x - 10, GROUND_Y - 300, 20, 300);
-    this.standGfx.fillStyle(0x2b2b2b).fillRect(this.player.x - 22, GROUND_Y - 120, 44, 6);
+    const x = Math.round(this.player.x - this.facing * 7);
+    const g = this.standGfx;
+    g.clear();
+    g.fillStyle(0x4a3424).fillRect(x - 4, 0, 8, GROUND_Y + 2);
+    g.fillStyle(0x614532).fillRect(x - 4, 0, 2, GROUND_Y + 2);
+    g.fillStyle(0x2b2b2b).fillRect(Math.round(this.player.x) - 9, GROUND_Y - STAND_HEIGHT, 18, 2);
+    g.fillStyle(0x3a3a3a).fillRect(Math.round(this.player.x) - 9, GROUND_Y - STAND_HEIGHT + 2, 1, 8);
     this.teachOnce('tree-stand');
   }
 
@@ -619,6 +597,7 @@ export class HuntScene extends Phaser.Scene {
     this.ended = true;
     this.input.setDefaultCursor('default');
     this.summary.newLessons = this.state.lessons.length - this.lessonsAtStart;
+    clearHud();
     note(message);
     this.cameras.main.fadeOut(600, 0, 0, 0);
     this.cameras.main.once('camerafadeoutcomplete', () => this.onEnd(this.summary));
@@ -631,23 +610,12 @@ export class HuntScene extends Phaser.Scene {
     return x > cam.worldView.x && x < cam.worldView.right;
   }
 
-  private updateParallax(): void {
-    const sx = this.cameras.main.scrollX;
-    for (const [t, f] of this.layers) t.tilePositionX = (sx * f) % LAYER_W;
-  }
-
-  private updateLight(): void {
-    const h = this.hour;
-    const night = h < 6 ? Phaser.Math.Clamp((6.75 - h) / 1.25, 0, 1) * 0.6 : h > 18.25 ? Phaser.Math.Clamp((h - 18.25) / 1.25, 0, 1) * 0.6 : 0;
-    const golden = Math.max(0, 1 - Math.abs(h - 7) / 1.2, 1 - Math.abs(h - 18) / 1.2) * 0.12;
-    this.dark.setFillStyle(0x0a1022, night);
-    this.glow.setFillStyle(0xff8a3a, golden);
-    const day = Phaser.Display.Color.ValueToColor(0x8fc3e0);
-    const dusk = Phaser.Display.Color.ValueToColor(0xe9a46a);
-    const nightC = Phaser.Display.Color.ValueToColor(0x1d2a44);
-    const mid = Phaser.Display.Color.Interpolate.ColorWithColor(day, dusk, 100, golden * 800);
-    const c = Phaser.Display.Color.Interpolate.ColorWithColor(new Phaser.Display.Color(mid.r, mid.g, mid.b), nightC, 100, (night / 0.6) * 100);
-    this.sky.setFillStyle(Phaser.Display.Color.GetColor(c.r, c.g, c.b));
+  /** Characters share the scene light so they sit in the same world as the scenery. */
+  private applyLight(): void {
+    const light = this.backdrop.light;
+    this.player.setTint(light);
+    for (const a of this.animals) a.sprite.setTint(a.mode === 'down' ? Phaser.Display.Color.ValueToColor(light).darken(15).color : light);
+    for (const s of this.sheds) s.setTint(light);
   }
 
   /** A faint cone shows where your scent drifts, so you can learn to play the wind. */
@@ -656,14 +624,14 @@ export class HuntScene extends Phaser.Scene {
     g.clear();
     const len = 160 * PX_PER_YARD * (this.scentSpray ? 0.45 : 1) * (this.inStand ? 0.5 : 1);
     const x = this.player.x;
-    const y = this.player.y - 30;
-    g.fillStyle(0xd8e6c0, 0.07);
-    g.fillTriangle(x, y, x + this.windDir * len, y - 70, x + this.windDir * len, y + 50);
+    const y = this.player.y - 14;
+    g.fillStyle(0xe8f0d8, 0.06);
+    g.fillTriangle(x, y, x + this.windDir * len, y - 34, x + this.windDir * len, y + 24);
     const t = (this.time.now / 1000) % 1;
-    g.fillStyle(0xd8e6c0, 0.25);
-    for (let i = 0; i < 6; i++) {
-      const f = (i / 6 + t) % 1;
-      g.fillCircle(x + this.windDir * len * f, y - 10 + Math.sin(f * 12 + i) * 30 * f, 2);
+    g.fillStyle(0xe8f0d8, 0.35);
+    for (let i = 0; i < 7; i++) {
+      const f = (i / 7 + t) % 1;
+      g.fillRect(Math.round(x + this.windDir * len * f), Math.round(y - 4 + Math.sin(f * 12 + i) * 14 * f), 1, 1);
     }
   }
 
@@ -672,29 +640,54 @@ export class HuntScene extends Phaser.Scene {
     g.clear();
     if (!this.aiming) return;
     const p = this.reticlePoint();
-    g.lineStyle(2, 0xffffff, 0.9).strokeCircle(p.x, p.y, 12);
-    g.lineBetween(p.x - 18, p.y, p.x - 5, p.y).lineBetween(p.x + 5, p.y, p.x + 18, p.y);
-    g.lineBetween(p.x, p.y - 18, p.x, p.y - 5).lineBetween(p.x, p.y + 5, p.x, p.y + 18);
-    g.fillStyle(0xff3b30, 1).fillCircle(p.x, p.y, 1.5);
+    const x = Math.round(p.x);
+    const y = Math.round(p.y);
+    g.fillStyle(0x000000, 0.5);
+    g.fillRect(x - 7, y + 1, 5, 1).fillRect(x + 3, y + 1, 5, 1).fillRect(x + 1, y - 7, 1, 5).fillRect(x + 1, y + 3, 1, 5);
+    g.fillStyle(0xffffff, 1);
+    g.fillRect(x - 8, y, 5, 1).fillRect(x + 4, y, 5, 1).fillRect(x, y - 8, 1, 5).fillRect(x, y + 4, 1, 5);
+    g.fillStyle(0xff3b30, 1).fillRect(x, y, 1, 1);
   }
 
   private updateHud(): void {
     const w = this.weapon();
     const ammo = w?.weapon ? count(this.state, w.weapon.ammo) : 0;
     const tags = ['deer-tag', 'turkey-tag'].filter((t) => has(this.state, t)).map((t) => `${item(t).name.replace(' Tag', '')} ×${count(this.state, t)}`);
-    this.hud.setText([
-      `${formatHour(this.hour)}  ${isLegalLight(this.hour) ? '✓ legal light' : '✗ no shooting'}`,
-      `Wind ${this.windDir === 1 ? '→ →' : '← ←'}  scent drifts ${this.windDir === 1 ? 'right' : 'left'}`,
-      `${w ? `${w.name}: ${ammo}` : 'No weapon'}${tags.length ? `  Tags: ${tags.join(', ')}` : ''}`,
-      `${this.inStand ? 'In tree stand' : this.crouched ? 'Crouched' : 'Standing'} · ${this.movement}${this.glassing ? ' · 🔭 glassing' : ''}`,
-    ]);
+    const legal = isLegalLight(this.hour);
 
-    const near = (x: number) => Math.abs(x - this.player.x) < 50 && !this.inStand;
     let hint = this.aiming
-      ? 'Left-click: shoot · hold Space: hold breath · F / right-click: lower'
+      ? 'Click: shoot · hold Space: hold breath · F: lower'
       : 'A/D move · Shift run · S crouch · F aim · B glass · C call · T stand · Esc camp';
-    if (this.animals.some((a) => a.mode === 'down' && near(a.sprite.x))) hint = 'Press E to tag and field dress';
-    else if (this.sheds.some((s) => near(s.x))) hint = 'A shed antler! Press E to pick it up';
-    this.hint.setText(hint);
+    if (this.animals.some((a) => a.mode === 'down' && this.near(a.x))) hint = 'Press E to tag and field dress';
+    else if (this.sheds.some((s) => this.near(s.x))) hint = 'A shed antler! Press E to pick it up';
+
+    setHud({
+      time: formatHour(this.hour),
+      legal,
+      wind: this.windDir,
+      weapon: w ? `${w.name} · ${ammo}` : 'No weapon',
+      tags: tags.join(' · '),
+      stance: `${this.inStand ? 'Tree stand' : this.crouched ? 'Crouched' : 'Standing'} · ${this.movement}${this.glassing ? ' · glassing' : ''}`,
+      breath: this.aiming ? this.breath / BREATH_SECONDS : null,
+      hint,
+    });
+
+    const labels: Label[] = [];
+    if (this.glassing) {
+      const cam = this.cameras.main;
+      for (const a of this.animals) {
+        if (a.mode === 'down' || a.mode === 'flee' || !this.onScreen(a.x)) continue;
+        const d = Math.abs(a.x - this.player.x) / PX_PER_YARD;
+        const check = checkShot(this.state, a.def, this.state.equippedWeapon, d, this.hour);
+        labels.push({
+          x: a.x - cam.scrollX,
+          y: a.sprite.y - a.sprite.height - 4,
+          title: a.def.name,
+          detail: `${Math.round(d)} yd · ${check.ok ? 'clear to shoot' : lesson(check.lesson!).title}`,
+          ok: check.ok,
+        });
+      }
+    }
+    setLabels(labels);
   }
 }
