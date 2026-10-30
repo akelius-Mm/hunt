@@ -23,6 +23,7 @@ import { item } from '../data/items';
 import { lesson } from '../data/lessons';
 import { note, teach } from '../ui/cards';
 import { clearHud, setHud, setLabels, type Label } from '../ui/hud';
+import { hideTouch, isTouch, pad, setTouchAiming, showTouch } from '../ui/touch';
 
 const WORLD_W = 2400;
 const START_HOUR = 5.5;
@@ -180,7 +181,23 @@ export class HuntScene extends Phaser.Scene {
     this.cameras.main.startFollow(this.player, true, 0.1, 0.1);
 
     this.bindInput();
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => clearHud());
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      clearHud();
+      hideTouch();
+    });
+    if (isTouch()) {
+      showTouch({
+        aim: () => this.setAiming(!this.aiming),
+        fire: () => this.aiming && this.fire(),
+        crouch: () => this.toggleCrouch(),
+        act: () => this.interact(),
+        glass: () => this.toggleGlassing(),
+        call: () => this.useCall(),
+        stand: () => this.toggleStand(),
+        swap: () => this.cycleWeapon(),
+        camp: () => this.endHunt('You head back to camp.'),
+      });
+    }
 
     if (this.area.lake) {
       if (has(this.state, 'decoys')) {
@@ -229,6 +246,8 @@ export class HuntScene extends Phaser.Scene {
     kb.on('keydown-ESC', () => this.endHunt('You head back to camp.'));
 
     this.input.on('pointerdown', (p: Phaser.Input.Pointer) => {
+      // On a touchscreen, touching the scene only moves the reticle; the Fire button shoots.
+      if (p.wasTouch) return;
       if (p.rightButtonDown()) this.setAiming(!this.aiming);
       else if (this.aiming) this.fire();
     });
@@ -287,15 +306,15 @@ export class HuntScene extends Phaser.Scene {
 
   private updatePlayer(dt: number): void {
     const k = this.keys;
-    const left = k.A.isDown || k.LEFT.isDown;
-    const right = k.D.isDown || k.RIGHT.isDown;
+    const left = k.A.isDown || k.LEFT.isDown || pad.left;
+    const right = k.D.isDown || k.RIGHT.isDown || pad.right;
     const canMove = !this.aiming && !this.inStand && !this.glassing;
     let dir = 0;
     if (canMove && left !== right) dir = left ? -1 : 1;
 
     if (dir === 0) this.movement = 'still';
     else if (this.crouched) this.movement = 'sneak';
-    else if (k.SHIFT.isDown) this.movement = 'run';
+    else if (k.SHIFT.isDown || pad.run) this.movement = 'run';
     else this.movement = 'walk';
 
     if (dir !== 0) {
@@ -312,7 +331,8 @@ export class HuntScene extends Phaser.Scene {
     this.player.y = this.inStand ? GROUND_Y - STAND_HEIGHT : GROUND_Y;
 
     // Holding your breath steadies your aim, but only for a few seconds.
-    const holding = this.aiming && k.SPACE.isDown && this.breath > 0;
+    const holding = this.aiming && (k.SPACE.isDown || pad.breath) && this.breath > 0;
+    setTouchAiming(this.aiming);
     this.breath = holding ? this.breath - dt : Math.min(BREATH_SECONDS, this.breath + dt * 0.8);
   }
 
@@ -659,7 +679,7 @@ export class HuntScene extends Phaser.Scene {
     const w = this.weapon()?.weapon;
     if (!w) return world;
     let sway = w.sway * (this.crouched ? 0.7 : 1) * (this.inStand ? 0.6 : 1);
-    if (this.keys.SPACE.isDown) sway *= this.breath > 0 ? 0.2 : 2;
+    if (this.keys.SPACE.isDown || pad.breath) sway *= this.breath > 0 ? 0.2 : 2;
     const t = this.time.now / 1000;
     return new Phaser.Math.Vector2(world.x + Math.sin(t * 1.3) * sway + Math.sin(t * 3.1) * sway * 0.3, world.y + Math.cos(t * 1.7) * sway * 0.7);
   }
@@ -916,15 +936,16 @@ export class HuntScene extends Phaser.Scene {
     const tags = ['deer-tag', 'turkey-tag'].filter((t) => has(this.state, t)).map((t) => `${item(t).name.replace(' Tag', '')} ×${count(this.state, t)}`);
     const legal = isLegalLight(this.hour);
 
+    const touch = isTouch();
     let hint = this.aiming
-      ? 'Click: shoot · hold Space: hold breath · F: lower'
-      : 'A/D move · Shift run · S crouch · F aim · B glass · C call · T stand · Esc camp';
+      ? touch ? 'Drag on the scene to aim · hold breath, then Fire' : 'Click: shoot · hold Space: hold breath · F: lower'
+      : touch ? 'Walk slowly, crouch, and keep the wind in your face' : 'A/D move · Shift run · S crouch · F aim · B glass · C call · T stand · Esc camp';
     const duckDown = this.animals.some((a) => a.def.waterfowl && a.mode === 'down' && !a.carried);
     if (duckDown && this.dog) hint = 'Duck down! Biscuit is on it';
-    else if (duckDown && this.animals.some((a) => a.def.waterfowl && a.mode === 'down' && this.near(a.x))) hint = has(this.state, 'waders') ? 'Press E to wade out and retrieve' : 'You need waders or a dog to reach it';
+    else if (duckDown && this.animals.some((a) => a.def.waterfowl && a.mode === 'down' && this.near(a.x))) hint = has(this.state, 'waders') ? (touch ? 'Tap ✋ to wade out and retrieve' : 'Press E to wade out and retrieve') : 'You need waders or a dog to reach it';
     else if (duckDown) hint = 'Duck down on the water: walk over to it';
-    else if (this.animals.some((a) => a.mode === 'down' && this.near(a.x))) hint = 'Press E to tag and field dress';
-    else if (this.sheds.some((s) => this.near(s.x))) hint = 'A shed antler! Press E to pick it up';
+    else if (this.animals.some((a) => a.mode === 'down' && this.near(a.x))) hint = touch ? 'Tap ✋ to tag and field dress' : 'Press E to tag and field dress';
+    else if (this.sheds.some((s) => this.near(s.x))) hint = touch ? 'A shed antler! Tap ✋ to pick it up' : 'A shed antler! Press E to pick it up';
 
     setHud({
       time: formatHour(this.hour),

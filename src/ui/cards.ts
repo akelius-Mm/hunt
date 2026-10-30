@@ -1,6 +1,7 @@
 import { learn } from '../core/state';
 import type { GameState } from '../core/types';
 import { lesson } from '../data/lessons';
+import { isTouch } from './touch';
 
 const cards = () => document.getElementById('cards')!;
 
@@ -10,7 +11,8 @@ function show(html: string, cls: string, ms: number): void {
   el.innerHTML = html;
   el.addEventListener('click', () => el.remove());
   cards().prepend(el);
-  while (cards().children.length > 4) cards().lastElementChild!.remove();
+  // Phones have less room: keep only the newest two.
+  while (cards().children.length > (isTouch() ? 2 : 4)) cards().lastElementChild!.remove();
   window.setTimeout(() => el.remove(), ms);
 }
 

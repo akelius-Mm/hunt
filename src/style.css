@@ -33,6 +33,11 @@ body {
 #frame {
   position: relative;
   width: min(calc(100vw - 32px), calc((100vh - 16px) * 16 / 9));
+  width: min(calc(100vw - 32px), calc((100dvh - 16px) * 16 / 9));
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
   aspect-ratio: 16 / 9;
   overflow: hidden;
   container-type: inline-size;
@@ -51,7 +56,8 @@ body {
 #game canvas { display: block; image-rendering: pixelated; }
 
 #ui, #hud, #labels { position: absolute; inset: 0; pointer-events: none; z-index: 6; }
-#ui { z-index: 8; }
+/* Menus and touch controls sit above lesson cards so they are never covered. */
+#ui { z-index: 12; }
 #ui > * { pointer-events: auto; }
 
 /* Pixel-style panel: a thick wooden edge with a lighter inner bevel. */
@@ -240,3 +246,73 @@ ul.facts { margin: 4px 0 12px; padding-left: 20px; font-size: 14px; }
 
 .summary-box { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(420px, 80%); padding: 16px; }
 .summary-box h2 { margin-top: 0; color: var(--accent); }
+
+/* ---------- Touch controls ---------- */
+#touch { position: absolute; inset: 0; pointer-events: none; z-index: 11; }
+#touch .tbtn {
+  position: absolute;
+  pointer-events: auto;
+  touch-action: none;
+  width: max(44px, 8.5cqw);
+  height: max(44px, 8.5cqw);
+  padding: 0;
+  font-size: max(16px, 2.6cqw);
+  background: #2a1f17b0;
+  border: 2px solid var(--edge-light);
+  border-radius: 50%;
+  color: var(--text);
+}
+#touch .tbtn.down, #touch .tbtn.on { background: #a5561cd0; border-color: var(--accent); }
+#touch .tbtn.small { width: auto; height: auto; min-height: 36px; border-radius: 6px; padding: 4px 10px; font-size: max(12px, 1.6cqw); }
+#touch .tbtn.big { width: max(56px, 11cqw); height: max(56px, 11cqw); font-size: max(15px, 2.2cqw); }
+#touch .tbtn.mini { position: static; width: auto; height: auto; min-height: 34px; border-radius: 6px; padding: 3px 8px; font-size: max(12px, 1.5cqw); }
+#t-left { left: 2%; bottom: 5%; }
+#t-right { left: calc(4% + max(44px, 8.5cqw)); bottom: 5%; }
+#t-run { left: 2%; bottom: calc(8% + max(44px, 8.5cqw)); }
+#t-crouch { left: calc(4% + max(44px, 8.5cqw)); bottom: calc(8% + max(44px, 8.5cqw)); }
+#t-aim { right: 2%; bottom: 5%; }
+#t-act { right: calc(4% + max(56px, 11cqw)); bottom: 5%; }
+#t-fire { right: 2%; bottom: calc(8% + max(56px, 11cqw)); display: none; background: #a33a22c0 !important; }
+#t-breath { right: calc(4% + max(56px, 11cqw)); bottom: calc(8% + max(56px, 11cqw)); display: none; }
+#touch.aiming #t-fire, #touch.aiming #t-breath { display: block; }
+#touch .t-row { position: absolute; left: 50%; transform: translateX(-50%); bottom: 13%; display: flex; gap: 6px; pointer-events: auto; }
+#frame:has(#touch:not([hidden])) .hud-hint { bottom: 3%; font-size: max(10px, 1.2cqw); }
+
+#rotate { display: none; }
+@media (pointer: coarse) and (orientation: portrait) {
+  #rotate {
+    display: flex;
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    text-align: center;
+    font-family: var(--pixel);
+    font-size: 22px;
+    color: var(--accent);
+    background: var(--bg);
+  }
+}
+
+/* Short screens, like a phone held sideways: tighter menus and cards. */
+@media (max-height: 500px) {
+  .camp-menu { top: 3%; padding: 8px 10px; width: min(250px, 40%); }
+  .camp-menu h1 { font-size: 18px; }
+  .camp-menu .sub, .camp-menu .hint { font-size: 11px; margin-top: 4px; }
+  .camp-menu button { font-size: 12px; padding: 3px 8px; margin-top: 3px; }
+  button { font-size: 12px; padding: 4px 8px; }
+  .modal { width: 96%; height: 96%; }
+  .modal header { padding: 4px 10px; }
+  .modal header h2 { font-size: 16px; }
+  .modal .body { padding: 6px 10px; font-size: 12px; }
+  .row { padding: 5px 0; gap: 6px; }
+  .row .summary, .row .tip, .say { font-size: 11px; }
+  .cols { gap: 8px; }
+  #cards { width: min(240px, 31%); gap: 4px; }
+  .card { font-size: 11px; padding: 5px 8px; }
+  .card h4 { font-size: 13px; }
+  .hud-box { font-size: 11px; padding: 3px 6px; }
+  .summary-box { padding: 10px; font-size: 12px; }
+}
