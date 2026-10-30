@@ -4,8 +4,8 @@ export type WeaponKind = 'rimfire' | 'shotgun' | 'centerfire' | 'bow';
 
 export interface WeaponStats {
   kind: WeaponKind;
-  /** Item id of the ammunition this weapon uses. */
-  ammo: string;
+  /** Item ids of the ammunition this weapon can fire. The right one is picked for each target. */
+  ammo: string[];
   /** Effective, ethical range in yards. */
   rangeYards: number;
   /** How much the reticle sways, in screen pixels. Lower is steadier. */
@@ -58,8 +58,16 @@ export interface AnimalDef {
   id: string;
   name: string;
   areas: string[];
-  /** Item id of the tag needed to harvest, if any. */
+  /** Item id of the tag needed to harvest, if any. A tag is used up per animal. */
   tag?: string;
+  /** Items you must carry but that are not used up, like a duck stamp. */
+  permits?: string[];
+  /** Most you may take in one day. */
+  bagLimit?: number;
+  /** Waterfowl shooting ends at sunset, not 30 minutes after. */
+  endsAtSunset?: boolean;
+  /** Flies, lands on water and must be retrieved. */
+  waterfowl?: boolean;
   /** Ammo ids that are legal and ethical for this animal. */
   legalAmmo: string[];
   /** For this animal and weapon kind, which zone gives a clean harvest. */
@@ -123,4 +131,6 @@ export interface GameState {
   lessons: string[];
   harvests: Harvest[];
   traderStock: Record<string, number>;
+  /** Biscuit the retriever hunts with you. */
+  hasDog?: boolean;
 }

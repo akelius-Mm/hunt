@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { animal } from '../src/data/animals';
 import { ITEMS } from '../src/data/items';
+import { LESSONS } from '../src/data/lessons';
 import { buy, canBuy, donateMeat, nextDay, sell, sellPrice } from '../src/core/economy';
 import { checkShot, harvest, resolveShot, senses, zoneAt, type SenseContext } from '../src/core/hunting';
 import { addItem, newGame } from '../src/core/state';
@@ -68,7 +69,7 @@ describe('shot rules', () => {
     expect(checkShot(s, deer, 'rifle-308', 50, 8).lesson).toBe('no-ammo');
     addItem(s, 'ammo-308', 20);
     expect(checkShot(s, deer, 'rifle-308', 400, 8).lesson).toBe('out-of-range');
-    expect(checkShot(s, deer, 'rifle-308', 100, 8).ok).toBe(true);
+    expect(checkShot(s, deer, 'rifle-308', 100, 8)).toEqual({ ok: true, ammo: 'ammo-308' });
   });
 
   it('rewards the vitals and punishes risky shots', () => {
@@ -144,5 +145,48 @@ describe('trader', () => {
 
   it('has the same stock for the same day', () => {
     expect(rollTraderStock(4)).toEqual(rollTraderStock(4));
+  });
+});
+
+describe('waterfowl rules', () => {
+  const duck = animal('mallard');
+  const ready = () => {
+    const s = hunterWith('hunting-license', 'shotgun-20', 'duck-stamp');
+    addItem(s, 'ammo-steel', 25);
+    return s;
+  };
+
+  it('needs a duck stamp', () => {
+    const s = hunterWith('hunting-license', 'shotgun-20');
+    addItem(s, 'ammo-steel', 25);
+    expect(checkShot(s, duck, 'shotgun-20', 30, 8).lesson).toBe('duck-stamp');
+  });
+
+  it('refuses lead shot, even when carrying it', () => {
+    const s = hunterWith('hunting-license', 'shotgun-20', 'duck-stamp');
+    addItem(s, 'ammo-turkey', 10);
+    expect(checkShot(s, duck, 'shotgun-20', 30, 8).lesson).toBe('steel-shot');
+  });
+
+  it('picks steel for ducks and turkey loads for turkeys from the same gun', () => {
+    const s = ready();
+    addItem(s, 'ammo-turkey', 10);
+    addItem(s, 'turkey-tag', 1);
+    expect(checkShot(s, duck, 'shotgun-20', 30, 8).ammo).toBe('ammo-steel');
+    expect(checkShot(s, animal('turkey'), 'shotgun-20', 30, 8).ammo).toBe('ammo-turkey');
+  });
+
+  it('ends shooting at sunset and enforces the bag limit', () => {
+    const s = ready();
+    expect(checkShot(s, duck, 'shotgun-20', 30, 18.7).lesson).toBe('waterfowl-hours');
+    expect(checkShot(s, duck, 'shotgun-20', 30, 8, 3).ok).toBe(true);
+    expect(checkShot(s, duck, 'shotgun-20', 30, 8, 4).lesson).toBe('bag-limit');
+  });
+
+  it('every lesson a shot check can return exists', () => {
+    const ids = new Set(LESSONS.map((l) => l.id));
+    for (const l of ['duck-stamp', 'steel-shot', 'waterfowl-hours', 'bag-limit', 'retrieve', 'lost-bird', 'lead-bird', 'dog', 'decoys', 'duck-down']) {
+      expect(ids.has(l)).toBe(true);
+    }
   });
 });

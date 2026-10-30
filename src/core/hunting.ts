@@ -31,6 +31,8 @@ export function formatHour(hour: number): string {
 export interface ShotCheck {
   ok: boolean;
   lesson?: string;
+  /** The ammo that will be fired, when ok. */
+  ammo?: string;
 }
 
 /** Everything a responsible hunter checks before pulling the trigger. */
@@ -40,15 +42,32 @@ export function checkShot(
   weaponId: string | null,
   distanceYards: number,
   hour: number,
+  takenToday = 0,
 ): ShotCheck {
   if (!has(state, 'hunting-license')) return { ok: false, lesson: 'no-license' };
   if (!isLegalLight(hour)) return { ok: false, lesson: 'shooting-hours' };
+  if (animal.endsAtSunset && hour > SUNSET) return { ok: false, lesson: 'waterfowl-hours' };
   const weapon = weaponId ? item(weaponId).weapon : undefined;
-  if (!weapon || !animal.legalAmmo.includes(weapon.ammo)) return { ok: false, lesson: 'wrong-weapon' };
+  const legalAmmo = weapon ? weapon.ammo.filter((a) => animal.legalAmmo.includes(a)) : [];
+  if (!weapon || legalAmmo.length === 0) return { ok: false, lesson: 'wrong-weapon' };
   if (animal.tag && !has(state, animal.tag)) return { ok: false, lesson: 'no-tag' };
-  if (count(state, weapon.ammo) <= 0) return { ok: false, lesson: 'no-ammo' };
+  for (const permit of animal.permits ?? []) {
+    if (!has(state, permit)) return { ok: false, lesson: permit };
+  }
+  if (animal.bagLimit !== undefined && takenToday >= animal.bagLimit) return { ok: false, lesson: 'bag-limit' };
+  const loaded = legalAmmo.find((a) => count(state, a) > 0);
+  if (!loaded) {
+    // Carrying ammo, just not a legal kind: lead shot for ducks is the classic mistake.
+    const wrongLoad = weapon.ammo.some((a) => count(state, a) > 0);
+    return { ok: false, lesson: wrongLoad && animal.waterfowl ? 'steel-shot' : 'no-ammo' };
+  }
   if (distanceYards > weapon.rangeYards) return { ok: false, lesson: 'out-of-range' };
-  return { ok: true };
+  return { ok: true, ammo: loaded };
+}
+
+/** The first ammo in stock for a weapon, for shots that aren't at an animal. */
+export function anyLoadedAmmo(state: GameState, weaponId: string): string | undefined {
+  return item(weaponId).weapon?.ammo.find((a) => count(state, a) > 0);
 }
 
 /** Which zone a point hits, in sprite pixel coordinates (sprite facing right). */

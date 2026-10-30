@@ -113,6 +113,33 @@ export const ANIMALS: AnimalDef[] = [
     ],
   },
   {
+    id: 'mallard',
+    name: 'Mallard (Drake)',
+    areas: ['marsh'],
+    permits: ['duck-stamp'],
+    bagLimit: 4,
+    endsAtSunset: true,
+    waterfowl: true,
+    legalAmmo: ['ammo-steel'],
+    // A shot pattern covers the whole bird, so any solid hit is clean.
+    cleanZones: { shotgun: ['head', 'vitals', 'body'] },
+    sightYards: 70,
+    hearingYards: 45,
+    scentYards: 5,
+    walkSpeed: 3,
+    fleeSpeed: 40,
+    activity: { dawn: 1, day: 0.35, dusk: 0.8 },
+    loot: [{ item: 'duck-feathers', qty: 1, chance: 1 }],
+    meatLbs: 2,
+    meatName: 'Duck',
+    zones: [{ zone: 'body', x0: 0, y0: 0, x1: 17, y1: 9 }],
+    fieldGuide: [
+      'Drakes have a green head and white neck ring. Hens are mottled brown. Know what you are shooting.',
+      'Ducks fly at dawn from roosting water to feed. Set up before first light.',
+      'Lead the bird: swing the barrel through it and shoot a little ahead.',
+    ],
+  },
+  {
     ...DEER_COMMON,
     id: 'buck',
     name: 'Whitetail Buck',
@@ -149,6 +176,8 @@ export function animal(id: string): AnimalDef {
 
 export interface AreaDef {
   id: string;
+  /** Open water with reflections, where ducks fly in. */
+  lake?: boolean;
   name: string;
   description: string;
   /** Animal id -> spawn weight. */
@@ -164,6 +193,15 @@ export const AREAS: AreaDef[] = [
     name: 'Oak Woodlot',
     description: 'Oaks, brush piles and field edges. Squirrels, rabbits and turkeys.',
     spawns: { squirrel: 4, rabbit: 4, turkey: 1 },
+    hasSheds: false,
+    orangeRequired: false,
+  },
+  {
+    id: 'marsh',
+    name: 'Cattail Marsh',
+    description: 'Open water ringed by cattails. Mallards fly in at first light. Duck season is open.',
+    lake: true,
+    spawns: { mallard: 1 },
     hasSheds: false,
     orangeRequired: false,
   },

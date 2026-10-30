@@ -1,8 +1,9 @@
 import Phaser from 'phaser';
 import { Backdrop } from '../art/backdrop';
 import { createSprites, frameKey } from '../art/sprites';
-import { GROUND_Y, VIEW_W } from '../art/view';
+import { GROUND_Y, VIEW_W, WATER_Y } from '../art/view';
 import {
+  anyLoadedAmmo,
   checkShot,
   formatHour,
   harvest,
@@ -40,6 +41,12 @@ const REACH = 24;
 
 const SPEED: Record<Movement, number> = { still: 0, sneak: 22, walk: 46, run: 100 };
 const SMALL_GAME = ['rabbit', 'squirrel'];
+/** Seconds before a downed duck drifts out of reach. */
+const DRIFT_SECONDS = 30;
+const GRAVITY = 320;
+const AMMO_SHORT: Record<string, string> = {
+  'ammo-22': '.22', 'ammo-turkey': 'turkey loads', 'ammo-steel': 'steel', 'ammo-308': '.308', 'arrows-broadhead': 'arrows',
+};
 
 export interface HuntSummary {
   areaName: string;
@@ -56,7 +63,8 @@ export interface HuntData {
   onEnd(summary: HuntSummary): void;
 }
 
-type Mode = 'idle' | 'walk' | 'alert' | 'curious' | 'flee' | 'down';
+/** Ground animals idle, walk, flee. Ducks fly, land, swim and fall. */
+type Mode = 'idle' | 'walk' | 'alert' | 'curious' | 'flee' | 'down' | 'fly' | 'land' | 'swim' | 'fall';
 
 interface Animal {
   def: AnimalDef;
@@ -71,6 +79,22 @@ interface Animal {
   anim: number;
   quality?: Quality;
   weaponId?: string;
+  /** Ducks: height (bottom of sprite) and where the flock means to land. */
+  y: number;
+  landX?: number;
+  /** Ducks on the water: seconds until a downed bird drifts away. */
+  drift: number;
+  /** The dog has this bird in its mouth. */
+  carried?: boolean;
+}
+
+interface Dog {
+  sprite: Phaser.GameObjects.Image;
+  x: number;
+  y: number;
+  task: Animal | null;
+  phase: 'follow' | 'out' | 'back';
+  anim: number;
 }
 
 export class HuntScene extends Phaser.Scene {
@@ -105,6 +129,11 @@ export class HuntScene extends Phaser.Scene {
   private ended = false;
   private summary!: HuntSummary;
   private lessonsAtStart = 0;
+  private dog: Dog | null = null;
+  private decoys: Phaser.GameObjects.Image[] = [];
+  private decoyX = 0;
+  /** Ducks downed today count toward the bag limit, retrieved or not. */
+  private ducksDowned = 0;
 
   constructor() {
     super('hunt');
@@ -133,12 +162,15 @@ export class HuntScene extends Phaser.Scene {
     this.taughtThisHunt = new Set();
     this.ended = false;
     this.lessonsAtStart = this.state.lessons.length;
+    this.dog = null;
+    this.decoys = [];
+    this.ducksDowned = 0;
     this.summary = { areaName: this.area.name, harvested: [], items: {}, meatLbs: 0, fines: 0, newLessons: 0 };
   }
 
   create(): void {
     createSprites(this);
-    this.backdrop = new Backdrop(this, { scrolling: true });
+    this.backdrop = new Backdrop(this, { scrolling: true, lake: this.area.lake });
     this.scentGfx = this.add.graphics().setDepth(5);
     this.standGfx = this.add.graphics().setDepth(18);
     this.reticle = this.add.graphics().setDepth(60);
@@ -150,7 +182,21 @@ export class HuntScene extends Phaser.Scene {
     this.bindInput();
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => clearHud());
 
-    for (let i = 0; i < 6; i++) this.spawnAnimal(Phaser.Math.Between(350, WORLD_W - 50));
+    if (this.area.lake) {
+      if (has(this.state, 'decoys')) {
+        this.decoyX = 260;
+        for (let i = 0; i < 7; i++) {
+          this.decoys.push(this.add.image(this.decoyX + i * 13 + (i % 2) * 5, WATER_Y - (i % 3), frameKey('mallard', 'swim')).setOrigin(0.5, 1).setDepth(9).setFlipX(i % 3 === 0));
+        }
+      }
+      for (let i = 0; i < 2; i++) this.spawnFlock(Phaser.Math.Between(400, WORLD_W - 100), true);
+    } else {
+      for (let i = 0; i < 6; i++) this.spawnAnimal(Phaser.Math.Between(350, WORLD_W - 50));
+    }
+    if (this.state.hasDog) {
+      const sprite = this.add.image(120, GROUND_Y, frameKey('dog', 'idle')).setOrigin(0.5, 1).setDepth(19);
+      this.dog = { sprite, x: 120, y: GROUND_Y, task: null, phase: 'follow', anim: 0 };
+    }
     if (this.area.hasSheds) {
       for (let i = 0; i < 2; i++) {
         if (Math.random() < 0.6) {
@@ -204,6 +250,11 @@ export class HuntScene extends Phaser.Scene {
       this.scentSpray = true;
       note('You spray down with scent eliminator. Your scent cone is smaller today.');
     }
+    if (this.area.lake) {
+      note(has(this.state, 'decoys') ? 'You set your decoys out on the water in front of you.' : 'No decoys today. Ducks have less reason to land near you.');
+      if (has(this.state, 'decoys')) this.teachOnce('decoys');
+      if (this.dog) note('🐕 Biscuit sits by your boot, watching the sky.');
+    }
     note(`${this.area.name}. Legal shooting light starts at ${formatHour(6)}. Watch the wind.`);
   }
 
@@ -225,6 +276,7 @@ export class HuntScene extends Phaser.Scene {
 
     this.updatePlayer(dt);
     this.updateAnimals(dt);
+    this.updateDog(dt);
     this.updateSpawns(dt);
     this.backdrop.update(this.hour, this.cameras.main.scrollX, dt, this.windDir);
     this.applyLight();
@@ -269,6 +321,10 @@ export class HuntScene extends Phaser.Scene {
       const dx = a.x - this.player.x;
       const distYards = Math.abs(dx) / PX_PER_YARD;
 
+      if (a.def.waterfowl) {
+        this.updateDuck(a, dt, dx, distYards);
+        continue;
+      }
       if (a.mode === 'down') continue;
 
       if (a.mode === 'flee') {
@@ -358,10 +414,187 @@ export class HuntScene extends Phaser.Scene {
     const ids = Object.keys(this.area.spawns);
     const avgActivity = ids.reduce((sum, id) => sum + animalDef(id).activity[tod], 0) / ids.length;
     if (Math.random() > avgActivity * 0.7) return;
+    if (this.area.lake) {
+      if (this.animals.filter((a) => a.mode !== 'down').length < MAX_ANIMALS) this.spawnFlock(0, false);
+      return;
+    }
     // Spawn just out of view so animals walk in rather than pop up.
     const cam = this.cameras.main;
     const side = Math.random() < 0.5 ? cam.scrollX - 60 : cam.scrollX + VIEW_W + 60;
     this.spawnAnimal(Phaser.Math.Clamp(side, 30, WORLD_W - 30));
+  }
+
+  private addAnimal(def: AnimalDef, x: number, y: number, mode: Mode, dir: 1 | -1): Animal {
+    const sprite = this.add.image(x, y, frameKey(def.id, def.waterfowl ? 'swim' : 'idle')).setOrigin(0.5, 1).setDepth(10);
+    const icon = this.add.image(x, 0, frameKey('icon', 'alert')).setOrigin(0.5, 1).setDepth(30).setVisible(false);
+    const a: Animal = { def, sprite, icon, mode, dir, x, y, awareness: 0, timer: 15 + Math.random() * 25, anim: Math.random() * 4, drift: DRIFT_SECONDS };
+    this.animals.push(a);
+    return a;
+  }
+
+  /** A flock either rests on the water already, or flies in from off-screen. */
+  private spawnFlock(x: number, onWater: boolean): void {
+    const def = animalDef('mallard');
+    const n = 2 + Math.floor(Math.random() * 4);
+    const cam = this.cameras.main;
+    const fromLeft = Math.random() < 0.5;
+    const startX = onWater ? x : fromLeft ? cam.scrollX - 40 : cam.scrollX + VIEW_W + 40;
+    const height = 50 + Math.random() * 60;
+    // Decoys pull flocks in. Without them, most just pass over.
+    let landX: number | undefined;
+    if (this.decoys.length && Math.random() < 0.7) landX = this.decoyX + 40 + (Math.random() - 0.5) * 60;
+    else if (Math.random() < 0.25) landX = cam.scrollX + 60 + Math.random() * (VIEW_W - 120);
+    for (let i = 0; i < n; i++) {
+      const dir: 1 | -1 = onWater ? (Math.random() < 0.5 ? 1 : -1) : fromLeft ? 1 : -1;
+      const a = this.addAnimal(def, startX - dir * i * 14, onWater ? WATER_Y - (i % 2) * 3 : height + (i % 2) * 6 + i * 2, onWater ? 'swim' : 'fly', dir);
+      if (landX !== undefined) a.landX = landX + i * 12;
+    }
+  }
+
+  private updateDuck(a: Animal, dt: number, dx: number, distYards: number): void {
+    const fly = a.def.fleeSpeed * PX_PER_YARD;
+    if (a.mode === 'fall') {
+      a.timer += dt;
+      a.y = Math.min(WATER_Y, a.y + GRAVITY * a.timer * dt);
+      a.x += a.dir * fly * 0.3 * dt;
+      if (a.y >= WATER_Y) {
+        a.mode = 'down';
+        const splash = this.add.rectangle(Math.round(a.x), WATER_Y - 1, 10, 1, 0xffffff, 0.7).setDepth(11);
+        this.tweens.add({ targets: splash, alpha: 0, scaleX: 2, duration: 600, onComplete: () => splash.destroy() });
+        if (!this.dog && !has(this.state, 'waders')) this.teachOnce('retrieve', true);
+      }
+    } else if (a.mode === 'down') {
+      if (a.carried) return;
+      a.drift -= dt;
+      a.x += Math.sin(this.time.now / 900) * 2 * dt;
+      if (a.drift <= 0) {
+        this.teachOnce('lost-bird', true);
+        this.tweens.add({ targets: a.sprite, alpha: 0, duration: 800 });
+        this.removeAnimal(a);
+        return;
+      }
+    } else {
+      const sense = senses(a.def, {
+        distanceYards: distYards,
+        movement: this.movement,
+        inStand: false,
+        windDir: this.windDir,
+        animalSide: dx >= 0 ? 1 : -1,
+        scentSpray: this.scentSpray,
+      });
+      a.awareness = Math.max(0, a.awareness + (sense.perSecond > 0 ? sense.perSecond : -0.15) * dt);
+      if (a.awareness >= 1 && a.mode !== 'flee') {
+        // Flush: jump off the water and climb away from the hunter.
+        a.mode = 'flee';
+        a.landX = undefined;
+        a.dir = dx >= 0 ? 1 : -1;
+        if (sense.cause && this.onScreen(a.x)) this.teachOnce(sense.cause);
+      }
+
+      if (a.mode === 'swim') {
+        a.timer -= dt;
+        a.x += a.dir * a.def.walkSpeed * PX_PER_YARD * dt;
+        if (Math.random() < dt * 0.2) a.dir = a.dir === 1 ? -1 : 1;
+        if (a.timer <= 0) {
+          a.mode = 'flee';
+          a.dir = Math.random() < 0.5 ? 1 : -1;
+        }
+      } else if (a.mode === 'fly' || a.mode === 'land') {
+        if (a.landX !== undefined && Math.abs(a.x - a.landX) < 90) a.mode = 'land';
+        const speed = a.mode === 'land' ? fly * Phaser.Math.Clamp(Math.abs(a.x - (a.landX ?? a.x)) / 90, 0.3, 1) : fly;
+        a.x += a.dir * speed * dt;
+        if (a.mode === 'land') {
+          a.y = Math.min(WATER_Y, a.y + 45 * dt);
+          if (a.y >= WATER_Y) {
+            a.mode = 'swim';
+            a.timer = 20 + Math.random() * 30;
+          }
+        } else {
+          a.y += Math.sin(this.time.now / 300 + a.anim) * 6 * dt;
+        }
+      } else if (a.mode === 'flee') {
+        a.x += a.dir * fly * dt;
+        a.y = Math.max(30, a.y - 70 * dt);
+      }
+      if (a.x < -100 || a.x > WORLD_W + 100 || (a.mode !== 'swim' && distYards > 320)) {
+        this.removeAnimal(a);
+        return;
+      }
+    }
+
+    if (distYards < 70 && this.onScreen(a.x) && !this.state.seenAnimals.includes(a.def.id)) {
+      this.state.seenAnimals.push(a.def.id);
+      note(`📓 New field guide entry: ${a.def.name}.`);
+    }
+    const s = a.sprite;
+    a.anim += dt * 8;
+    const flying = a.mode === 'fly' || a.mode === 'flee' || (a.mode === 'land' && a.y < WATER_Y - 4);
+    s.setTexture(frameKey('mallard', flying ? (Math.floor(a.anim) % 2 ? 'up' : 'down') : a.mode === 'fall' ? 'up' : 'swim'));
+    s.setFlipX(a.dir === -1).setFlipY(a.mode === 'down');
+    s.setPosition(Math.round(a.x), Math.round(a.y));
+    s.setAlpha(distYards > CLEAR_SIGHT_YARDS && !this.glassing ? 0.5 : 1);
+    a.icon.setPosition(Math.round(a.x), Math.round(a.y - s.height - 3));
+    a.icon.setVisible(a.mode === 'flee' && a.y > 60);
+    a.icon.setTexture(frameKey('icon', 'flee'));
+  }
+
+  /** Biscuit follows you, and on the marsh swims out for downed ducks. */
+  private updateDog(dt: number): void {
+    const d = this.dog;
+    if (!d) return;
+    if (!d.task && d.phase === 'follow') {
+      d.task = this.animals.find((a) => a.def.waterfowl && a.mode === 'down' && !a.carried) ?? null;
+      if (d.task) {
+        d.phase = 'out';
+        note('🐕 Biscuit leaps into the water!');
+      }
+    }
+    let targetX = this.player.x - this.facing * 16;
+    let targetY = GROUND_Y;
+    if (d.phase === 'out' && d.task) {
+      targetX = d.task.x;
+      targetY = Math.abs(d.x - d.task.x) < 6 ? d.task.y + 2 : GROUND_Y;
+      if (Math.abs(d.x - d.task.x) < 3 && Math.abs(d.y - targetY) < 2) {
+        d.task.carried = true;
+        d.phase = 'back';
+      }
+    } else if (d.phase === 'back' && d.task) {
+      targetY = GROUND_Y;
+      targetX = d.y < GROUND_Y - 1 ? d.x : this.player.x - this.facing * 10;
+      d.task.x = d.x + (d.sprite.flipX ? -8 : 8);
+      d.task.y = d.y - 6;
+      d.task.sprite.setPosition(Math.round(d.task.x), Math.round(d.task.y));
+      if (Math.abs(d.x - targetX) < 4 && d.y >= GROUND_Y - 1) {
+        this.collectDuck(d.task, '🐕 Biscuit drops the duck at your feet. Good dog!');
+        this.teachOnce('dog');
+        d.task = null;
+        d.phase = 'follow';
+      }
+    }
+    const busy = d.phase !== 'follow';
+    const speed = busy ? 90 : Math.abs(targetX - d.x) > 60 ? 110 : 50;
+    const dxDog = targetX - d.x;
+    if (Math.abs(dxDog) > 3) {
+      d.x += Math.sign(dxDog) * Math.min(Math.abs(dxDog), speed * dt);
+      d.sprite.setFlipX(dxDog < 0);
+    }
+    if (Math.abs(targetY - d.y) > 0.5) d.y += Math.sign(targetY - d.y) * Math.min(Math.abs(targetY - d.y), 25 * dt);
+    const swimming = d.y < GROUND_Y - 1;
+    const moving = Math.abs(dxDog) > 3 || swimming;
+    d.anim += dt * 9;
+    d.sprite.setTexture(frameKey('dog', swimming ? 'swim' : moving && Math.floor(d.anim) % 2 ? 'run' : 'idle'));
+    d.sprite.setPosition(Math.round(d.x), Math.round(d.y));
+  }
+
+  /** Harvest a retrieved duck: by dog, by wading, or picked up. */
+  private collectDuck(a: Animal, message: string): void {
+    const r = harvest(this.state, a.def, a.quality!, a.weaponId!);
+    this.summary.harvested.push(`${a.def.name} (${a.quality})`);
+    this.summary.meatLbs += r.meatLbs;
+    for (const [id, q] of Object.entries(r.items)) this.summary.items[id] = (this.summary.items[id] ?? 0) + q;
+    note(message);
+    for (const l of r.lessons) this.teachOnce(l);
+    this.removeAnimal(a);
   }
 
   private spawnAnimal(x: number): void {
@@ -377,10 +610,8 @@ export class HuntScene extends Phaser.Scene {
         break;
       }
     }
-    const def = animalDef(id);
-    const sprite = this.add.image(x, GROUND_Y, frameKey(id, 'idle')).setOrigin(0.5, 1).setDepth(10);
-    const icon = this.add.image(x, 0, frameKey('icon', 'alert')).setOrigin(0.5, 1).setDepth(30).setVisible(false);
-    this.animals.push({ def, sprite, icon, mode: 'idle', dir: Math.random() < 0.5 ? 1 : -1, x, awareness: 0, timer: Math.random() * 3, anim: Math.random() * 4 });
+    const a = this.addAnimal(animalDef(id), x, GROUND_Y, 'idle', Math.random() < 0.5 ? 1 : -1);
+    a.timer = Math.random() * 3;
   }
 
   private removeAnimal(a: Animal): void {
@@ -438,27 +669,28 @@ export class HuntScene extends Phaser.Scene {
     const w = weaponItem?.weapon;
     if (!weaponItem || !w) return;
     const pt = this.reticlePoint();
-    const target = this.animals.find((a) => a.mode !== 'down' && a.sprite.getBounds().contains(pt.x, pt.y));
+    const target = this.animals.find((a) => a.mode !== 'down' && a.mode !== 'fall' && a.sprite.getBounds().contains(pt.x, pt.y));
 
     if (!target) {
       // A shot at nothing still has to be a legal, safe shot.
       if (!has(this.state, 'hunting-license')) return this.teachOnce('no-license', true);
       if (!isLegalLight(this.hour)) return this.teachOnce('shooting-hours', true);
-      if (count(this.state, w.ammo) <= 0) return this.teachOnce('no-ammo', true);
-      addItem(this.state, w.ammo, -1);
+      const loaded = anyLoadedAmmo(this.state, weaponItem.id);
+      if (!loaded) return this.teachOnce('no-ammo', true);
+      addItem(this.state, loaded, -1);
       this.shotEffects(pt, w.firearm);
       note('You fired at nothing. Only shoot when you have a clear, identified target.');
       return;
     }
 
     const distYards = Math.abs(target.x - this.player.x) / PX_PER_YARD;
-    const check = checkShot(this.state, target.def, weaponItem.id, distYards, this.hour);
+    const check = checkShot(this.state, target.def, weaponItem.id, distYards, this.hour, target.def.waterfowl ? this.ducksDowned : 0);
     if (!check.ok) {
       note('✋ You lower your weapon.');
       return this.teachOnce(check.lesson!, true);
     }
 
-    addItem(this.state, w.ammo, -1);
+    addItem(this.state, check.ammo!, -1);
     this.shotEffects(pt, w.firearm, target);
 
     const s = target.sprite;
@@ -467,7 +699,14 @@ export class HuntScene extends Phaser.Scene {
     if (s.flipX) col = s.width - 1 - col;
     const result = resolveShot(target.def, w.kind, zoneAt(target.def, col, row));
 
-    if (result.result === 'clean') {
+    if (result.result === 'clean' && target.def.waterfowl) {
+      target.mode = 'fall';
+      target.timer = 0;
+      target.quality = result.quality;
+      target.weaponId = weaponItem.id;
+      target.icon.setVisible(false);
+      this.ducksDowned++;
+    } else if (result.result === 'clean') {
       target.mode = 'down';
       target.quality = result.quality;
       target.weaponId = weaponItem.id;
@@ -478,7 +717,9 @@ export class HuntScene extends Phaser.Scene {
       target.dir = target.x >= this.player.x ? 1 : -1;
       if (result.result === 'wounded') note(`The ${target.def.name.toLowerCase()} was wounded and ran off.`);
     }
-    this.teachOnce(result.lesson, true);
+    const flying = target.def.waterfowl && target.mode !== 'fall' && target.y < WATER_Y - 4;
+    const shown = result.result === 'miss' && flying ? 'lead-bird' : result.result === 'clean' && target.def.waterfowl ? 'duck-down' : result.lesson;
+    this.teachOnce(shown, true);
   }
 
   private shotEffects(pt: Phaser.Math.Vector2, firearm: boolean, target?: Animal): void {
@@ -507,7 +748,16 @@ export class HuntScene extends Phaser.Scene {
   }
 
   private interact(): void {
-    const down = this.animals.find((a) => a.mode === 'down' && this.near(a.x));
+    const duck = this.animals.find((a) => a.def.waterfowl && a.mode === 'down' && !a.carried && this.near(a.x));
+    if (duck) {
+      if (this.dog) return note('🐕 Biscuit has it. Let her work.');
+      if (!has(this.state, 'waders')) return this.teachOnce('retrieve', true);
+      // Wading out takes time and flushes nearby ducks.
+      this.hour += 0.15;
+      for (const a of this.animals) if (a.mode === 'swim' && Math.abs(a.x - this.player.x) < 120 * PX_PER_YARD) a.awareness = 1;
+      return this.collectDuck(duck, 'You wade out in your waders and pick up the duck.');
+    }
+    const down = this.animals.find((a) => a.mode === 'down' && !a.def.waterfowl && this.near(a.x));
     if (down) {
       if (down.def.tag && !has(this.state, down.def.tag)) return this.teachOnce('no-tag', true);
       const r = harvest(this.state, down.def, down.quality!, down.weaponId!);
@@ -534,6 +784,7 @@ export class HuntScene extends Phaser.Scene {
     const calls: [string, string[]][] = [
       ['grunt-call', ['buck', 'doe']],
       ['box-call', ['turkey']],
+      ['duck-call', ['mallard']],
     ];
     const owned = calls.filter(([id]) => has(this.state, id));
     if (!owned.length) return note('You have no game calls. The outfitter sells grunt calls and box calls.');
@@ -546,7 +797,14 @@ export class HuntScene extends Phaser.Scene {
       if (!targets.includes(a.def.id) || a.mode === 'down' || a.mode === 'flee') continue;
       if (Math.abs(a.x - this.player.x) / PX_PER_YARD > 220) continue;
       if (tooSoon) a.awareness += 0.35;
-      else if (a.mode !== 'alert') {
+      else if (a.def.waterfowl) {
+        // Passing ducks swing around toward the caller.
+        if (a.mode === 'fly' && a.landX === undefined) {
+          a.landX = (this.decoys.length ? this.decoyX + 40 : this.player.x + this.facing * 50) + Math.random() * 30;
+          a.dir = a.landX > a.x ? 1 : -1;
+          answered++;
+        }
+      } else if (a.mode !== 'alert') {
         a.mode = 'curious';
         a.timer = 10;
         answered++;
@@ -616,6 +874,9 @@ export class HuntScene extends Phaser.Scene {
     this.player.setTint(light);
     for (const a of this.animals) a.sprite.setTint(a.mode === 'down' ? Phaser.Display.Color.ValueToColor(light).darken(15).color : light);
     for (const s of this.sheds) s.setTint(light);
+    // Decoys are painted plastic: a little duller than the real thing.
+    for (const d of this.decoys) d.setTint(Phaser.Display.Color.ValueToColor(light).darken(28).color);
+    this.dog?.sprite.setTint(light);
   }
 
   /** A faint cone shows where your scent drifts, so you can learn to play the wind. */
@@ -651,14 +912,18 @@ export class HuntScene extends Phaser.Scene {
 
   private updateHud(): void {
     const w = this.weapon();
-    const ammo = w?.weapon ? count(this.state, w.weapon.ammo) : 0;
+    const ammo = w?.weapon ? w.weapon.ammo.map((a) => `${count(this.state, a)} ${AMMO_SHORT[a] ?? a}`).join(', ') : '';
     const tags = ['deer-tag', 'turkey-tag'].filter((t) => has(this.state, t)).map((t) => `${item(t).name.replace(' Tag', '')} ×${count(this.state, t)}`);
     const legal = isLegalLight(this.hour);
 
     let hint = this.aiming
       ? 'Click: shoot · hold Space: hold breath · F: lower'
       : 'A/D move · Shift run · S crouch · F aim · B glass · C call · T stand · Esc camp';
-    if (this.animals.some((a) => a.mode === 'down' && this.near(a.x))) hint = 'Press E to tag and field dress';
+    const duckDown = this.animals.some((a) => a.def.waterfowl && a.mode === 'down' && !a.carried);
+    if (duckDown && this.dog) hint = 'Duck down! Biscuit is on it';
+    else if (duckDown && this.animals.some((a) => a.def.waterfowl && a.mode === 'down' && this.near(a.x))) hint = has(this.state, 'waders') ? 'Press E to wade out and retrieve' : 'You need waders or a dog to reach it';
+    else if (duckDown) hint = 'Duck down on the water: walk over to it';
+    else if (this.animals.some((a) => a.mode === 'down' && this.near(a.x))) hint = 'Press E to tag and field dress';
     else if (this.sheds.some((s) => this.near(s.x))) hint = 'A shed antler! Press E to pick it up';
 
     setHud({
@@ -678,7 +943,7 @@ export class HuntScene extends Phaser.Scene {
       for (const a of this.animals) {
         if (a.mode === 'down' || a.mode === 'flee' || !this.onScreen(a.x)) continue;
         const d = Math.abs(a.x - this.player.x) / PX_PER_YARD;
-        const check = checkShot(this.state, a.def, this.state.equippedWeapon, d, this.hour);
+        const check = checkShot(this.state, a.def, this.state.equippedWeapon, d, this.hour, a.def.waterfowl ? this.ducksDowned : 0);
         labels.push({
           x: a.x - cam.scrollX,
           y: a.sprite.y - a.sprite.height - 4,

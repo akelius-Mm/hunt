@@ -1,6 +1,8 @@
 import { buy, buyPrice, canBuy, demandOf, discount, donateMeat, sell, sellPrice } from '../core/economy';
 import { count, has } from '../core/state';
 import {
+  canBorrowDog,
+  DOG_TRUST,
   evaluateTrade,
   executeTrade,
   TRADER_GOODS,
@@ -16,6 +18,11 @@ import { LESSONS, PASS_SCORE, QUIZ } from '../data/lessons';
 import { teach } from './cards';
 
 const ui = () => document.getElementById('ui')!;
+
+/** Rounds in stock for every ammo type a weapon can fire. */
+function ammoCount(state: GameState, weaponId: string): number {
+  return item(weaponId).weapon!.ammo.reduce((n, a) => n + count(state, a), 0);
+}
 
 export interface CampActions {
   hunt(areaId: string): void;
@@ -80,8 +87,7 @@ function nextStep(state: GameState): string {
   if (!state.hunterEd) return 'Next: take the hunter education course.';
   if (!has(state, 'hunting-license')) return 'Next: buy a hunting license at the outfitter.';
   if (!state.equippedWeapon) return 'Next: buy a .22 rifle, ammo and a knife, then hunt squirrels and rabbits in the Oak Woodlot.';
-  const w = item(state.equippedWeapon).weapon!;
-  if (count(state, w.ammo) === 0) return `Next: buy ammo for your ${item(state.equippedWeapon).name}.`;
+  if (ammoCount(state, state.equippedWeapon) === 0) return `Next: buy ammo for your ${item(state.equippedWeapon).name}.`;
   if (state.harvests.length === 0) return 'Tip: walk slowly, keep the wind in your face, hunt at dawn or dusk.';
   return `Lessons learned: ${state.lessons.length}/${LESSONS.length}.`;
 }
@@ -232,7 +238,16 @@ export function openTrader(state: GameState, onClose: () => void): void {
       <div class="meter"><div style="width:${pct}%"></div></div>
       <button class="primary" data-deal>Propose trade</button>
       <p class="owned">He values hides and pelts above shop prices, so trading can beat selling.
-      He asks a ${Math.round((traderMargin(state) - 1) * 100)}% margin, which drops each time you trade.</p>`;
+      He asks a ${Math.round((traderMargin(state) - 1) * 100)}% margin, which drops each time you trade.</p>
+      <div class="row"><div><div class="name">🐕 Biscuit, his yellow Lab</div>
+        <div class="summary">${
+          state.hasDog
+            ? 'Biscuit hunts with you now. She retrieves ducks from the water.'
+            : canBorrowDog(state)
+              ? '"You\'ve been square with me. Take Biscuit duck hunting, she\'s itching to go."'
+              : `"She doesn\'t go out with strangers." Trade with Hollis ${DOG_TRUST - state.traderRep} more time(s).`
+        }</div></div><div></div>
+        <div>${canBorrowDog(state) ? '<button class="primary" data-dog>Take Biscuit along</button>' : ''}</div></div>`;
   };
 
   on(body, 'button', (t) => {
@@ -241,6 +256,10 @@ export function openTrader(state: GameState, onClose: () => void): void {
     if (d.ungive) add(give, d.ungive, -1);
     if (d.take) add(take, d.take, 1);
     if (d.untake) add(take, d.untake, -1);
+    if (t.hasAttribute('data-dog')) {
+      state.hasDog = true;
+      reply = '"Bring her back with a full belly. She likes cold water."';
+    }
     if (t.hasAttribute('data-deal')) {
       const v = executeTrade(state, give, take);
       reply = v.message;
@@ -271,7 +290,7 @@ export function openJournal(state: GameState, onClose: () => void, tab = 'gear')
       for (const w of weapons) {
         const carried = state.equippedWeapon === w.id;
         html += `<div class="row"><div><div class="name">${w.name}</div>
-          <div class="summary">Effective range ${w.weapon!.rangeYards} yd · Ammo: ${count(state, w.weapon!.ammo)}</div></div>
+          <div class="summary">Effective range ${w.weapon!.rangeYards} yd · Ammo: ${w.weapon!.ammo.map((a) => `${item(a).name.replace(/ \(.*\)/, '')} ${count(state, a)}`).join(', ')}</div></div>
           <div></div><div><button data-equip="${w.id}" ${carried ? 'disabled' : ''}>${carried ? 'Carrying' : 'Carry'}</button></div></div>`;
       }
       html += '<h3 style="margin-top:14px">Inventory</h3>';
@@ -380,8 +399,8 @@ function openAreaSelect(state: GameState, actions: CampActions): void {
   root.querySelector('.tabs')!.remove();
   const weapon = state.equippedWeapon ? item(state.equippedWeapon) : null;
   body.innerHTML = `
-    <p class="say">Carrying: ${weapon ? `${weapon.name} (${count(state, weapon.weapon!.ammo)} rounds)` : 'no weapon. You can still scout.'}
-     · Gear: ${['knife', 'orange-vest', 'binoculars', 'scent-spray', 'grunt-call', 'box-call', 'tree-stand'].filter((g) => has(state, g)).map((g) => item(g).name).join(', ') || 'none'}</p>
+    <p class="say">Carrying: ${weapon ? `${weapon.name} (${ammoCount(state, weapon.id)} rounds)` : 'no weapon. You can still scout.'}${state.hasDog ? ' · 🐕 Biscuit comes along' : ''}
+     · Gear: ${['knife', 'orange-vest', 'binoculars', 'scent-spray', 'grunt-call', 'box-call', 'tree-stand', 'duck-stamp', 'waders', 'decoys', 'duck-call'].filter((g) => has(state, g)).map((g) => item(g).name).join(', ') || 'none'}</p>
     ${AREAS.map((a) => `<div class="row"><div><div class="name">${a.name}</div><div class="summary">${a.description}</div>
       ${a.orangeRequired ? '<div class="reason">Firearm deer season: blaze orange required with a firearm.</div>' : ''}</div>
       <div></div><div><button class="primary" data-area="${a.id}">Hunt here</button></div></div>`).join('')}

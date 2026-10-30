@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { golden, gradeAt, lerpColor, nightness, type Grade } from './palette';
-import { GROUND_Y, VIEW_H, VIEW_W } from './view';
+import { GROUND_Y, LAKE_HORIZON, VIEW_H, VIEW_W } from './view';
 
 type Ctx = CanvasRenderingContext2D;
 
@@ -266,6 +266,34 @@ function foreground(): HTMLCanvasElement {
   return c;
 }
 
+/** Cattails and reeds along the shore, in patches so ducks show through the gaps. */
+function reeds(): HTMLCanvasElement {
+  const H = 56;
+  const [c, ctx] = makeCanvas(VIEW_W, H);
+  const rand = rng(71);
+  for (let p = 0; p < 7; p++) {
+    const px = rand() * VIEW_W;
+    const width = 20 + rand() * 40;
+    for (let i = 0; i < width / 2; i++) {
+      const x = Math.round(px + (rand() - 0.5) * width);
+      const h = 14 + Math.round(rand() * 34);
+      const lean = rand() < 0.5 ? -1 : 1;
+      wrapped((dx) => {
+        for (let y = 0; y < h; y++) rect(ctx, x + dx + Math.round((lean * y * y) / 900), H - y, 1, 1, y > h * 0.6 ? '#6b7a3a' : '#4a5a2a');
+        const top = x + dx + Math.round((lean * h * h) / 900);
+        if (rand() < 0.55) {
+          rect(ctx, top, H - h - 2, 2, 6, '#5a3a22');
+          rect(ctx, top, H - h - 2, 1, 6, '#7a5232');
+          rect(ctx, top, H - h - 4, 1, 2, '#6b7a3a');
+        }
+        // A long leaf blade arching out.
+        if (rand() < 0.4) for (let k = 0; k < 10; k++) rect(ctx, x + dx + lean * k, H - Math.round(h * 0.5) - Math.round(Math.sin((k / 10) * Math.PI) * 5) + k, 1, 1, '#5d6c34');
+      });
+    }
+  }
+  return c;
+}
+
 // ---------- Small textures ----------
 
 function sunTexture(): HTMLCanvasElement {
@@ -343,6 +371,7 @@ export function createScenery(scene: Phaser.Scene): void {
   t.addCanvas('bg-near', nearTrees());
   t.addCanvas('bg-ground', ground());
   t.addCanvas('bg-front', foreground());
+  t.addCanvas('bg-reeds', reeds());
   t.addCanvas('sun', sunTexture());
   t.addCanvas('moon', moonTexture());
   t.addCanvas('stars', starsTexture());
@@ -369,6 +398,14 @@ interface Particle {
 export interface BackdropOptions {
   /** True when the camera scrolls (the hunt). False for the still camp scene. */
   scrolling: boolean;
+  /** Open water that mirrors the sky and far shore. */
+  lake?: boolean;
+}
+
+interface Glint {
+  obj: Phaser.GameObjects.Rectangle;
+  baseX: number;
+  phase: number;
 }
 
 export class Backdrop {
@@ -388,10 +425,16 @@ export class Backdrop {
   private leaves: Particle[] = [];
   private flies: Particle[] = [];
   private birds: Phaser.GameObjects.Image[] = [];
+  private reflections: [Phaser.GameObjects.TileSprite, number, number][] = [];
+  private glints: Glint[] = [];
+  private sunGlints: Phaser.GameObjects.Rectangle[] = [];
+  /** Where the sky meets the land (or the water, at the lake). */
+  private horizon: number;
   private lastScroll = 0;
   private time = 0;
 
-  constructor(private scene: Phaser.Scene, opts: BackdropOptions) {
+  constructor(private scene: Phaser.Scene, private opts: BackdropOptions) {
+    this.horizon = opts.lake ? LAKE_HORIZON : VIEW_H;
     createScenery(scene);
     this.skyTex = scene.textures.exists('sky')
       ? (scene.textures.get('sky') as Phaser.Textures.CanvasTexture)
@@ -403,18 +446,54 @@ export class Backdrop {
 
     const layer = (key: string, bottom: number, h: number, depth: number) =>
       scene.add.tileSprite(0, bottom - h, VIEW_W, h, key).setOrigin(0).setScrollFactor(0).setDepth(depth);
-    this.far.push([layer('bg-mountains', 205, 120, -90), 0.04, 0]);
-    this.far.push([layer('bg-ridge', 212, 90, -85), 0.1, 1]);
-    this.far.push([layer('bg-far', 220, 110, -80), 0.2, 2]);
-    this.mists.push(layer('mist', 214, 40, -79));
-    this.far.push([layer('bg-mid', 224, 140, -75), 0.35, 3]);
-    this.mists.push(layer('mist', 226, 40, -74).setFlipX(true));
-    this.far.push([layer('bg-big', 226, 190, -70), 0.55, 4]);
+    // At the lake the far shore sits higher, leaving room for the water below it.
+    const lift = opts.lake ? 226 - LAKE_HORIZON : 0;
+    const farLayers: [string, number, number, number, number][] = [
+      ['bg-mountains', 205, 120, -90, 0.04],
+      ['bg-ridge', 212, 90, -85, 0.1],
+      ['bg-far', 220, 110, -80, 0.2],
+      ['bg-mid', 224, 140, -75, 0.35],
+      ['bg-big', 226, 190, -70, 0.55],
+    ];
+    farLayers.forEach(([key, bottom, h, depth, f], i) => {
+      // Across open water, the tall near forest is too far away to tower over you.
+      if (opts.lake && key === 'bg-big') return;
+      this.far.push([layer(key, bottom - lift, h, depth), f, i]);
+      if (opts.lake) {
+        // The mirror image: flipped about the horizon, behind a veil of water.
+        const r = scene.add
+          .tileSprite(0, 2 * LAKE_HORIZON - (bottom - lift), VIEW_W, h, key)
+          .setOrigin(0)
+          .setScrollFactor(0)
+          .setFlipY(true)
+          .setDepth(-62 + i * 0.1);
+        this.reflections.push([r, f, i]);
+      }
+    });
+    this.mists.push(layer('mist', 214 - lift, 40, -79));
+    this.mists.push(layer('mist', 226 - lift, 40, -74).setFlipX(true));
+    if (opts.lake) this.mists.push(layer('mist', LAKE_HORIZON + 14, 40, -58));
+
+    if (opts.lake) {
+      for (let i = 0; i < 34; i++) {
+        const obj = scene.add
+          .rectangle(0, LAKE_HORIZON + 3 + Math.random() * (GROUND_Y - LAKE_HORIZON - 6), 2 + Math.floor(Math.random() * 9), 1, 0xffffff)
+          .setOrigin(0)
+          .setScrollFactor(0)
+          .setDepth(-56)
+          .setBlendMode(Phaser.BlendModes.ADD);
+        this.glints.push({ obj, baseX: Math.random() * VIEW_W, phase: Math.random() * 10 });
+      }
+      for (let i = 0; i < 14; i++) {
+        this.sunGlints.push(scene.add.rectangle(0, LAKE_HORIZON + 2 + i * 4, 4, 1, 0xfff0c0).setOrigin(0.5, 0).setScrollFactor(0).setDepth(-55).setBlendMode(Phaser.BlendModes.ADD));
+      }
+    }
 
     for (let i = 0; i < 3; i++) {
       this.rays.push(scene.add.image(80 + i * 140, 0, 'ray').setOrigin(0).setScrollFactor(0).setDepth(-65).setBlendMode(Phaser.BlendModes.ADD));
     }
-    if (opts.scrolling) this.near.push([layer('bg-near', GROUND_Y + 6, GROUND_Y + 6, -60), 0.8]);
+    if (opts.scrolling && !opts.lake) this.near.push([layer('bg-near', GROUND_Y + 6, GROUND_Y + 6, -60), 0.8]);
+    if (opts.lake) this.near.push([layer('bg-reeds', GROUND_Y + 3, 56, -45), 0.9]);
     this.near.push([layer('bg-ground', VIEW_H, VIEW_H - GROUND_TOP, -50), 1]);
     if (opts.scrolling) this.near.push([layer('bg-front', VIEW_H, 40, 50), 1.3]);
 
@@ -447,7 +526,8 @@ export class Backdrop {
     // Sun and moon arc across the sky.
     const dayT = (hour - 6.3) / (18.7 - 6.3);
     this.sun.setVisible(dayT > -0.05 && dayT < 1.05);
-    this.sun.setPosition(Math.round(40 + dayT * 400), Math.round(200 - Math.sin(Math.max(0, Math.min(1, dayT)) * Math.PI) * 150));
+    const sunBase = this.opts.lake ? LAKE_HORIZON - 10 : 200;
+    this.sun.setPosition(Math.round(40 + dayT * 400), Math.round(sunBase - Math.sin(Math.max(0, Math.min(1, dayT)) * Math.PI) * (sunBase - 50)));
     this.sun.setTint(lerpColor(0xffffff, 0xffa060, gold));
     const nightT = hour > 12 ? (hour - 18.7) / 11 : (hour + 5.3) / 11;
     this.moon.setPosition(Math.round(40 + nightT * 400), Math.round(180 - Math.sin(Math.max(0, Math.min(1, nightT)) * Math.PI) * 140));
@@ -457,9 +537,14 @@ export class Backdrop {
       t.tilePositionX = Math.round(scrollX * f) % VIEW_W;
       t.setTint(g.layers[i]);
     }
+    for (const [t, f, i] of this.reflections) {
+      t.tilePositionX = Math.round(scrollX * f) % VIEW_W;
+      t.setTint(lerpColor(g.layers[i], 0x101820, 0.3)).setAlpha(0.62);
+    }
+    if (this.opts.lake) this.updateWater(scrollX, gold, night);
     this.mists.forEach((m, i) => {
       m.tilePositionX = Math.round(scrollX * (0.25 + i * 0.15) + this.time * (2 + i)) % VIEW_W;
-      m.setTint(g.mist).setAlpha(g.mistAlpha);
+      m.setTint(g.mist).setAlpha(this.opts.lake ? g.mistAlpha * (i === 2 ? 0.35 : 0.6) : g.mistAlpha);
     });
     this.rays.forEach((r, i) => {
       r.setAlpha(gold * (0.35 + Math.sin(this.time * 0.6 + i * 2) * 0.12));
@@ -481,16 +566,41 @@ export class Backdrop {
     this.updateBirds(dt, night);
   }
 
+  /** Sparkles drifting on the water, and a broken column of sunlight under the sun. */
+  private updateWater(scrollX: number, gold: number, night: number): void {
+    for (const gl of this.glints) {
+      gl.phase += 0.016;
+      let x = (gl.baseX - scrollX * 0.5 + Math.sin(gl.phase) * 4) % VIEW_W;
+      if (x < 0) x += VIEW_W;
+      gl.obj.x = Math.round(x);
+      gl.obj.setFillStyle(lerpColor(this.grade.skyBottom, 0xffffff, 0.5));
+      gl.obj.setAlpha(Math.max(0, Math.sin(gl.phase * 2.1)) * (0.35 - night * 0.2));
+    }
+    const sunUp = this.sun.visible && this.sun.y < LAKE_HORIZON;
+    this.sunGlints.forEach((s, i) => {
+      s.x = Math.round(this.sun.x + Math.sin(this.time * 3 + i * 1.7) * (1 + i * 0.6));
+      s.width = Math.max(1, Math.round(6 - i * 0.3 + Math.sin(this.time * 5 + i) * 2));
+      s.setFillStyle(lerpColor(0xfff4d8, 0xffa060, gold));
+      s.setAlpha(sunUp ? (0.55 - i * 0.03) * (0.5 + gold * 0.5) * (0.6 + Math.sin(this.time * 4 + i * 2) * 0.4) : 0);
+    });
+  }
+
   private drawSky(g: Grade): void {
     const ctx = this.skyTex.getContext();
     const img = ctx.createImageData(VIEW_W, VIEW_H);
     const levels = 14;
+    const H = this.horizon;
     for (let y = 0; y < VIEW_H; y++) {
-      const t = Math.min(1, Math.pow(y / (VIEW_H * 0.8), 1.3)) * levels;
+      // Below the horizon at the lake, the water mirrors the sky, a little darker.
+      const below = y > H;
+      const sy = below ? 2 * H - y : y;
+      const span = this.opts.lake ? H : VIEW_H * 0.8;
+      const t = Math.min(1, Math.pow(Math.max(0, sy) / span, 1.3)) * levels;
       for (let x = 0; x < VIEW_W; x++) {
         // Ordered dithering between color bands: the classic pixel-art gradient.
         const step = Math.floor(t) + ((t % 1) * 16 > BAYER[(y & 3) * 4 + (x & 3)] ? 1 : 0);
-        const c = lerpColor(g.skyTop, g.skyBottom, Math.min(1, step / levels));
+        let c = lerpColor(g.skyTop, g.skyBottom, Math.min(1, step / levels));
+        if (below) c = lerpColor(c, 0x16222e, 0.28 + ((y - H) / (GROUND_Y - H)) * 0.2);
         const o = (y * VIEW_W + x) * 4;
         img.data[o] = (c >> 16) & 255;
         img.data[o + 1] = (c >> 8) & 255;

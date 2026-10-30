@@ -16,6 +16,7 @@ export const TRADER_WANTS: Record<string, number> = {
   'shed-antler': 1.3,
   antlers: 1.2,
   'turkey-feathers': 0.8,
+  'duck-feathers': 1.0,
 };
 
 /** Used gear Hollis may have, with the base value he puts on it. */
@@ -23,6 +24,9 @@ export const TRADER_GOODS: Record<string, number> = {
   'ammo-22': 10,
   'ammo-turkey': 20,
   'ammo-308': 40,
+  'ammo-steel': 24,
+  decoys: 55,
+  waders: 40,
   'arrows-broadhead': 35,
   'scent-spray': 14,
   binoculars: 110,
@@ -31,6 +35,13 @@ export const TRADER_GOODS: Record<string, number> = {
   'orange-vest': 15,
   knife: 25,
 };
+
+/** After this many trades, Hollis trusts you enough to lend you his dog. */
+export const DOG_TRUST = 2;
+
+export function canBorrowDog(state: GameState): boolean {
+  return !state.hasDog && state.traderRep >= DOG_TRUST;
+}
 
 /** He wants more than he gives. The margin shrinks as he gets to like you. */
 export function traderMargin(state: GameState): number {

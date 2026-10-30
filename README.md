@@ -30,6 +30,7 @@ Other commands: `npm test` (unit tests for the game rules), `npm run build` (sta
 | Legal shooting hours | The day starts before legal light, and you can't shoot until it begins. |
 | Safety | Blaze orange in firearm deer season (or the warden fines you), and a harness for tree stands. |
 | After the shot | Tag, field dress (bring a knife!), keep or donate the meat. Wild game meat can't be sold. |
+| Waterfowl | Duck stamp, steel shot only (lead is illegal), shooting ends at sunset, a daily bag limit, leading a flying bird, and retrieving every bird. |
 
 Lesson cards are collected in the journal, so you can track how much you've learned.
 
@@ -37,6 +38,7 @@ Lesson cards are collected in the journal, so you can track how much you've lear
 
 - **Outfitter:** buy gear, sell hides, tails, feathers and antlers. Prices drop as you sell more of the same thing and recover each day.
 - **Old Hollis:** a trapper who barters used gear for hides and pelts. His stock rotates daily, and he gets less greedy each time you trade.
+- **Biscuit:** after a couple of trades, Hollis lends you his yellow Lab, who retrieves ducks from the water.
 - **Donations:** donating meat builds community reputation, which gives up to 15% off at the outfitter.
 
 ## Controls

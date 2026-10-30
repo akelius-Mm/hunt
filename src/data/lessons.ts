@@ -25,6 +25,16 @@ export const LESSONS: Lesson[] = [
   { id: 'shed', title: 'Shed antlers', text: 'You found a shed antler. Bucks drop their antlers each winter and grow new ones.' },
   { id: 'meat', title: 'Meat stays with you', text: 'Selling wild game meat is illegal in most of the US. You keep it, or donate it at camp through a hunters-for-the-hungry program.' },
   { id: 'donate', title: 'Sharing the harvest', text: 'Donated venison feeds families in need. Many states and processors run donation programs.' },
+  { id: 'duck-down', title: 'Bird down', text: 'Good shot. Ducks need no tag, but every downed bird must be retrieved, and it counts toward your daily bag limit.' },
+  { id: 'duck-stamp', title: 'Duck stamp required', text: 'To hunt ducks you need a Federal Duck Stamp (and in real life, usually a state permit and HIP registration too). The outfitter sells the stamp.' },
+  { id: 'steel-shot', title: 'Non-toxic shot only', text: 'Lead shot is illegal for waterfowl everywhere in the US. Ducks swallow spent lead pellets and are poisoned. Load steel shot.' },
+  { id: 'waterfowl-hours', title: 'Ducks: shooting ends at sunset', text: 'Waterfowl shooting hours usually end at sunset, earlier than for most other game. Unload and enjoy the evening flight.' },
+  { id: 'bag-limit', title: 'Daily bag limit', text: 'Each day has a limit on how many ducks you may take, set to keep populations healthy. You have reached it for today.' },
+  { id: 'retrieve', title: 'Retrieve every bird', text: 'A downed duck on the water must be retrieved. Leaving game to waste is illegal. Waterfowlers use a retriever, waders or a boat.' },
+  { id: 'lost-bird', title: 'A lost bird', text: 'The duck drifted out of reach and was lost. Next time, bring waders or hunt with a dog.' },
+  { id: 'lead-bird', title: 'Lead the bird', text: 'A flying duck moves while your shot travels. Swing through the bird and fire a little ahead of it.' },
+  { id: 'decoys', title: 'Decoys and wind', text: 'Ducks land into the wind and like company. Decoys near you give them a reason to come in close.' },
+  { id: 'dog', title: 'Good dog', text: 'A trained retriever finds and brings back downed birds, even in cold water and thick cover. Fewer lost birds, and the best company in a duck blind.' },
   { id: 'binoculars', title: 'Glass first', text: 'Binoculars let you spot and identify animals far away before they spot you.' },
 ];
 
@@ -86,6 +96,18 @@ export const QUIZ: QuizQuestion[] = [
     answer: 1,
     why: 'Most states require you to tag the animal before moving it. Then field dress it so the meat cools quickly.',
   },
+  {
+    q: 'What kind of shot must you use for ducks?',
+    options: ['Any lead shot', 'Steel or other approved non-toxic shot', 'Rifle bullets'],
+    answer: 1,
+    why: 'Lead shot has been banned for waterfowl since 1991. Ducks swallow spent lead pellets and get lead poisoning.',
+  },
+  {
+    q: 'Besides a hunting license, what does a duck hunter 16 or older need?',
+    options: ['A Federal Duck Stamp', 'A deer tag', 'Nothing else'],
+    answer: 0,
+    why: 'The Federal Duck Stamp. Money from stamp sales buys and protects wetlands.',
+  },
 ];
 
-export const PASS_SCORE = 6;
+export const PASS_SCORE = 8;

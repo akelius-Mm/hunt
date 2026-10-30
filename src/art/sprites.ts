@@ -219,6 +219,65 @@ const TURKEY_PAL: Palette = {
   R: '#d6453d', U: '#7c9be0', r: '#b8302a', e: '#111111', l: '#c27a5a', d: '#120c08',
 };
 
+const MALLARD = {
+  swim: [
+    '..........ooo....',
+    '.........oGGGo...',
+    '.........oGeGYY..',
+    '..........oGGo...',
+    '...oooooo.oWo....',
+    '.ooBBBBBBooCCo...',
+    'oKBBBbbBBBCCCo...',
+    'oKKBBBBBBBBCo....',
+    '.ooooooooooo.....',
+  ],
+  up: [
+    '....o............',
+    '...oBo...........',
+    '..oBBo...........',
+    '.oBLBo....ooo....',
+    'oBBBo....oGGGo...',
+    '..oBBBBBBoGeGYY..',
+    '.oKBBBBBCCGo.....',
+    '..ooooooooo......',
+    '.................',
+  ],
+  down: [
+    '..........ooo....',
+    '.........oGGGo...',
+    '..oooooooGeGYY...',
+    '.oKBBBBBCCGo.....',
+    '..oBBBBBBoo......',
+    '...oBLBo.........',
+    '....oBo..........',
+    '.....o...........',
+    '.................',
+  ],
+};
+const MALLARD_PAL: Palette = {
+  o: '#1c1a14', G: '#2f7a46', e: '#111111', Y: '#e6c23e', W: '#f4f1ea', C: '#8a3e22',
+  B: '#b4b0a4', b: '#8e8a80', K: '#24221e', L: '#4a62d8',
+};
+
+const DOG_TOP = [
+  '............oo....',
+  '...........oYYo...',
+  '..........oYYYYoo.',
+  '..........oYeYYYYn',
+  '..........oYYYYoo.',
+  '..o.......oYrYo...',
+  '.oYoooooooYYYYo...',
+  '..oYYYYYYYYYYYo...',
+  '..oYYYYYYYYYYYo...',
+  '..oyYYYYYYYYyyo...',
+];
+const DOG = {
+  idle: [...DOG_TOP, '...oYo.oYo.oYooYo.', '...oYo.oYo.oYooYo.', '...ooo.ooo.oooooo.'],
+  run: [...DOG_TOP, '..oYo..oYo..oYo.oYo', '.oYo....oYooYo...oYo', '.ooo.....oooo.....ooo'],
+  swim: [...DOG_TOP.slice(0, 7), '.wwYYYYYYYYYYYYww..', 'wwwwwwwwwwwwwwwwwww'],
+};
+const DOG_PAL: Palette = { o: '#3a2a1a', Y: '#e2c27a', y: '#c09a54', e: '#111111', n: '#1a1a1a', r: '#c0442c', w: '#cfe4f0' };
+
 const SHED = ['A.........', '.AA...A...', '..AAAAA..A', '....aAAAAa', '.......aa.'];
 
 const ICON_ALERT = ['ooooo', 'oYYYo', 'oooYo', '.oYYo', '.ooo.', '.oYo.', '.ooo.'];
@@ -238,6 +297,8 @@ const FAMILIES: Record<string, Family> = {
   rabbit: { frames: { idle: RABBIT, walk: RABBIT_HOP }, palette: { o: '#2a1d14', B: '#9b7f62', b: '#7a6048', p: '#d99a9a', W: '#f2efe8', L: '#d8c8b0', n: '#d98080' } },
   squirrel: { frames: { idle: SQUIRREL, walk: SQUIRREL_HOP }, palette: { o: '#1e1e22', T: '#b0b0b0', t: '#8a8a8a', B: '#8a8a8e', b: '#66666a', L: '#ece6da', e: '#111111', n: '#444444' } },
   turkey: { frames: { idle: [...TURKEY, ...TURKEY_LEGS.idle], walk: [...TURKEY, ...TURKEY_LEGS.walk] }, palette: TURKEY_PAL },
+  mallard: { frames: MALLARD, palette: MALLARD_PAL },
+  dog: { frames: DOG, palette: DOG_PAL },
   shed: { frames: { idle: SHED }, palette: { A: '#ece0c4', a: '#b8a888' } },
   icon: { frames: { alert: ICON_ALERT, flee: ICON_FLEE }, palette: { o: '#1a120c', Y: '#ffd27a', R: '#ff5a4a' } },
 };
@@ -280,5 +341,5 @@ export function createSprites(scene: Phaser.Scene): void {
 /** Exposed for tests: sprite size per family. */
 export function spriteSize(family: string): { w: number; h: number } {
   const fam = FAMILIES[family];
-  return { w: familyWidth(fam), h: fam.frames.idle.length };
+  return { w: familyWidth(fam), h: Object.values(fam.frames)[0].length };
 }
