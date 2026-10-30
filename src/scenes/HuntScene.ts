@@ -42,6 +42,10 @@ const REACH = 24;
 
 const SPEED: Record<Movement, number> = { still: 0, sneak: 22, walk: 46, run: 100 };
 const SMALL_GAME = ['rabbit', 'squirrel'];
+/** Phones zoom in so the hunter and animals are easier to see. */
+const TOUCH_ZOOM = 1.35;
+/** Zoom around a point low on the screen: crops sky, keeps the ground in view. */
+const TOUCH_ZOOM_ORIGIN_Y = 0.75;
 /** Seconds before a downed duck drifts out of reach. */
 const DRIFT_SECONDS = 30;
 const GRAVITY = 320;
@@ -177,8 +181,11 @@ export class HuntScene extends Phaser.Scene {
     this.reticle = this.add.graphics().setDepth(60);
 
     this.player = this.add.image(150, GROUND_Y, this.playerKey('idle')).setOrigin(0.5, 1).setDepth(20);
-    this.cameras.main.setBounds(0, 0, WORLD_W, 270);
-    this.cameras.main.startFollow(this.player, true, 0.1, 0.1);
+    const cam = this.cameras.main;
+    cam.setBounds(0, 0, WORLD_W, 270);
+    // The scenery layers are fixed to the screen, so the camera must never scroll vertically.
+    cam.startFollow(this.player, true, 0.1, 0);
+    if (isTouch()) cam.setOrigin(0.5, TOUCH_ZOOM_ORIGIN_Y).setZoom(TOUCH_ZOOM);
 
     this.bindInput();
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
@@ -883,6 +890,14 @@ export class HuntScene extends Phaser.Scene {
 
   // ---------- Drawing ----------
 
+  /** World position to screen position in game pixels, allowing for zoom. */
+  private toScreen(x: number, y: number): { x: number; y: number } {
+    const c = this.cameras.main;
+    const ox = c.width * c.originX;
+    const oy = c.height * c.originY;
+    return { x: (x - c.scrollX - ox) * c.zoom + ox, y: (y - c.scrollY - oy) * c.zoom + oy };
+  }
+
   private onScreen(x: number): boolean {
     const cam = this.cameras.main;
     return x > cam.worldView.x && x < cam.worldView.right;
@@ -960,14 +975,14 @@ export class HuntScene extends Phaser.Scene {
 
     const labels: Label[] = [];
     if (this.glassing) {
-      const cam = this.cameras.main;
       for (const a of this.animals) {
         if (a.mode === 'down' || a.mode === 'flee' || !this.onScreen(a.x)) continue;
         const d = Math.abs(a.x - this.player.x) / PX_PER_YARD;
         const check = checkShot(this.state, a.def, this.state.equippedWeapon, d, this.hour, a.def.waterfowl ? this.ducksDowned : 0);
+        const at = this.toScreen(a.x, a.sprite.y - a.sprite.height - 4);
         labels.push({
-          x: a.x - cam.scrollX,
-          y: a.sprite.y - a.sprite.height - 4,
+          x: at.x,
+          y: at.y,
           title: a.def.name,
           detail: `${Math.round(d)} yd · ${check.ok ? 'clear to shoot' : lesson(check.lesson!).title}`,
           ok: check.ok,
