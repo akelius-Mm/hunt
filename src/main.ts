@@ -69,3 +69,9 @@ if (!state.lessons.includes('welcome')) teach(state, 'welcome');
 
 // Handy for poking at the game from the browser console while developing.
 if (import.meta.env.DEV) Object.assign(window, { game, getState: () => state });
+
+// Installed on a home screen, the game works offline. Hosts without a service worker
+// file (like an embedded preview) simply skip this.
+if (import.meta.env.PROD && 'serviceWorker' in navigator && location.protocol === 'https:') {
+  navigator.serviceWorker.register('./sw.js').catch(() => {});
+}
