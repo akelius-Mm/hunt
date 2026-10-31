@@ -10,6 +10,8 @@ export function isTouch(): boolean {
 }
 
 export interface TouchActions {
+  /** Fishing: tie on the next fly. */
+  flybox?(): void;
   crouch(): void;
   act(): void;
   glass(): void;
@@ -21,6 +23,7 @@ export interface TouchActions {
 
 /** Which gear buttons to show: only gear the hunter actually has. */
 export interface TouchGear {
+  flybox?: boolean;
   glass: boolean;
   call: boolean;
   stand: boolean;
@@ -62,7 +65,7 @@ export function showTouch(actions: TouchActions, gear: TouchGear): void {
     <button class="tbtn small" id="t-crouch">Crouch</button>
     <button class="tbtn big" id="t-act" aria-label="Tag or pick up">✋</button>
     <div class="t-row">
-      ${tool('glass', '🔭', 'Binoculars')}${tool('call', '📯', 'Use call')}${tool('stand', '🌲', 'Tree stand')}${tool('swap', '🔁', 'Switch weapon')}
+      ${tool('flybox', '🪰', 'Change fly')}${tool('glass', '🔭', 'Binoculars')}${tool('call', '📯', 'Use call')}${tool('stand', '🌲', 'Tree stand')}${tool('swap', '🔁', 'Switch weapon')}
       <button class="tbtn mini" data-t="camp" aria-label="Back to camp">⛺</button>
     </div>`;
   r.hidden = false;
@@ -87,7 +90,7 @@ export function showTouch(actions: TouchActions, gear: TouchGear): void {
   r.querySelectorAll<HTMLElement>('[data-t]').forEach((b) =>
     b.addEventListener('pointerdown', (e) => {
       e.preventDefault();
-      actions[b.dataset.t as keyof TouchActions]();
+      actions[b.dataset.t as keyof TouchActions]?.();
     }),
   );
 }

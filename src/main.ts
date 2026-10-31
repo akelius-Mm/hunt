@@ -3,9 +3,10 @@ import { nextDay } from './core/economy';
 import { clearSave, load, newGame, save } from './core/state';
 import { VIEW_H, VIEW_W } from './art/view';
 import { CampScene } from './scenes/CampScene';
+import { FishScene, type FishSummary } from './scenes/FishScene';
 import { HuntScene, type HuntSummary } from './scenes/HuntScene';
 import { clearCards, teach } from './ui/cards';
-import { clearUi, showCamp, showHaul, type CampActions } from './ui/menus';
+import { clearUi, showCamp, showFishSummary, showHaul, type CampActions } from './ui/menus';
 import './style.css';
 
 let state = load() ?? newGame();
@@ -18,7 +19,7 @@ const game = new Phaser.Game({
   pixelArt: true,
   backgroundColor: '#12160f',
   scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
-  scene: [CampScene, HuntScene],
+  scene: [CampScene, HuntScene, FishScene],
 });
 
 const actions: CampActions = {
@@ -26,6 +27,11 @@ const actions: CampActions = {
     clearUi();
     game.scene.stop('camp');
     game.scene.start('hunt', { state, areaId, onEnd: endHunt });
+  },
+  fish() {
+    clearUi();
+    game.scene.stop('camp');
+    game.scene.start('fish', { state, onEnd: endFishing });
   },
   save: () => save(state),
   reset() {
@@ -39,8 +45,19 @@ const actions: CampActions = {
 
 function goCamp(): void {
   game.scene.stop('hunt');
+  game.scene.stop('fish');
   game.scene.start('camp');
   showCamp(state, actions);
+}
+
+function endFishing(s: FishSummary): void {
+  nextDay(state);
+  save(state);
+  goCamp();
+  showFishSummary(state, s, () => {
+    save(state);
+    showCamp(state, actions);
+  });
 }
 
 function endHunt(s: HuntSummary): void {

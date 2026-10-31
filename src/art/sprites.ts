@@ -278,6 +278,38 @@ const DOG = {
 };
 const DOG_PAL: Palette = { o: '#3a2a1a', Y: '#e2c27a', y: '#c09a54', e: '#111111', n: '#1a1a1a', r: '#c0442c', w: '#cfe4f0' };
 
+// The angler: same build as the hunter, rod hand forward, in chest waders.
+const ANGLER_TOP = [
+  '......oooo........',
+  '.....oHHHHo.......',
+  '....oHHHHhho......',
+  '...oooooooooo.....',
+  '.....oSSSSo.......',
+  '.....oSSSeo.......',
+  '.....osSSSo.......',
+  '......oSSo........',
+  '....ooVVVVoo......',
+  '...oVVkVVkVvo.....',
+  '...ojVVVVVVvo.....',
+  '...ojVVVVVJJSS....',
+  '...ojVVVVVVvo.....',
+  '...oPPPPPPPPo.....',
+  '...oPPPPPPPPo.....',
+];
+const ANGLER_FRAMES = Object.fromEntries(Object.entries(HUNTER_LEGS).map(([k, legs]) => [k, [...ANGLER_TOP, ...legs]]));
+
+// Trout, facing left. One shape, three species' colors.
+const TROUT = [
+  '......oooooo..........',
+  '....ooGGGGGGoo.....oo.',
+  '..ooGGgGGgGGGGoo..oTTo',
+  '.oGGGGGGGgGGGGGGooTTTo',
+  'oeGGPPPPPPPPPPGGGTTTTo',
+  '.oLLLLLLLLLLLLLLooTTTo',
+  '..ooLLLLLLLLLLoo..oTTo',
+  '....oooooooooo.....oo.',
+];
+
 const SHED = ['A.........', '.AA...A...', '..AAAAA..A', '....aAAAAa', '.......aa.'];
 
 const ICON_ALERT = ['ooooo', 'oYYYo', 'oooYo', '.oYYo', '.ooo.', '.oYo.', '.ooo.'];
@@ -298,6 +330,10 @@ const FAMILIES: Record<string, Family> = {
   squirrel: { frames: { idle: SQUIRREL, walk: SQUIRREL_HOP }, palette: { o: '#1e1e22', T: '#b0b0b0', t: '#8a8a8a', B: '#8a8a8e', b: '#66666a', L: '#ece6da', e: '#111111', n: '#444444' } },
   turkey: { frames: { idle: [...TURKEY, ...TURKEY_LEGS.idle], walk: [...TURKEY, ...TURKEY_LEGS.walk] }, palette: TURKEY_PAL },
   mallard: { frames: MALLARD, palette: MALLARD_PAL },
+  angler: { frames: ANGLER_FRAMES, palette: { ...HUNTER_BASE, H: '#b89a6a', h: '#8a7048', V: '#9a9466', v: '#767048', k: '#5a5638', P: '#5e6650', p: '#464c3c' } },
+  'trout-rainbow': { frames: { swim: TROUT }, palette: { o: '#1e1e1a', G: '#6e7e48', g: '#1e2418', P: '#e07890', L: '#eeeae0', T: '#6e7e48', e: '#111111' } },
+  'trout-brown': { frames: { swim: TROUT }, palette: { o: '#1e1610', G: '#8a6a30', g: '#2a1a10', P: '#c8442c', L: '#ecd490', T: '#8a6a30', e: '#111111' } },
+  'trout-brook': { frames: { swim: TROUT }, palette: { o: '#1a1e18', G: '#3e5a3a', g: '#d0c878', P: '#e0503a', L: '#f08a3a', T: '#c84a2a', e: '#111111' } },
   dog: { frames: DOG, palette: DOG_PAL },
   shed: { frames: { idle: SHED }, palette: { A: '#ece0c4', a: '#b8a888' } },
   icon: { frames: { alert: ICON_ALERT, flee: ICON_FLEE }, palette: { o: '#1a120c', Y: '#ffd27a', R: '#ff5a4a' } },

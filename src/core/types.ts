@@ -1,4 +1,4 @@
-export type ItemCategory = 'license' | 'weapon' | 'ammo' | 'gear' | 'loot';
+export type ItemCategory = 'license' | 'weapon' | 'ammo' | 'gear' | 'fishing' | 'loot';
 
 export type WeaponKind = 'rimfire' | 'shotgun' | 'centerfire' | 'bow';
 
@@ -133,4 +133,28 @@ export interface GameState {
   traderStock: Record<string, number>;
   /** Biscuit the retriever hunts with you. */
   hasDog?: boolean;
+  /** Every trout caught, kept or released. */
+  fishLog?: FishCatch[];
+}
+
+export type FlyType = 'mayfly' | 'caddis' | 'nymph' | 'streamer';
+
+export interface FishDef {
+  id: string;
+  name: string;
+  minIn: number;
+  maxIn: number;
+  /** Smallest you may keep, in inches. */
+  keepMinIn: number;
+  /** How much it likes each fly, before hatches and time of day. */
+  likes: Record<FlyType, number>;
+  fieldGuide: string[];
+}
+
+export interface FishCatch {
+  day: number;
+  fish: string;
+  lengthIn: number;
+  fly: string;
+  released: boolean;
 }

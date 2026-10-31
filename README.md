@@ -34,6 +34,19 @@ Other commands: `npm test` (unit tests for the game rules), `npm run build` (sta
 
 Lesson cards are collected in the journal, so you can track how much you've learned.
 
+## Fly fishing
+
+A second mode at **Aspen Creek**, a trout stream through golden aspens.
+
+| You learn | How the game teaches it |
+|---|---|
+| Licenses | A fishing license (separate from hunting) and a trout stamp. |
+| Casting | Touch and hold the water where you want your fly, and let go when the ring closes. Bad timing slaps the water and spooks trout. |
+| Match the hatch | Mayflies hatch late morning and caddis in the evening, and trout rise to them. Use a dry fly that matches. Nymphs work all day; streamers work at dawn and dusk. |
+| Setting the hook | When a trout takes, tap fast. |
+| Playing a fish | Hold to reel, let go when it runs. Too much tension snaps the tippet; too little and it throws the hook. A net helps land it. |
+| Regulations | Minimum sizes per species and a daily limit of 2 kept. Releasing a fish earns community reputation. |
+
 ## Economy
 
 - **Outfitter:** buy gear, sell hides, tails, feathers and antlers. Prices drop as you sell more of the same thing and recover each day.
