@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { animal } from '../src/data/animals';
 import { ITEMS } from '../src/data/items';
 import { LESSONS } from '../src/data/lessons';
+import { fish } from '../src/data/fish';
+import { cannotFish, cannotKeep, castQuality, hatchAt, stepFight, strikeRate, type FightState } from '../src/core/fishing';
 import { buy, canBuy, donateMeat, nextDay, sell, sellPrice } from '../src/core/economy';
 import { checkShot, harvest, resolveShot, senses, zoneAt, type SenseContext } from '../src/core/hunting';
 import { addItem, newGame } from '../src/core/state';
@@ -188,5 +190,64 @@ describe('waterfowl rules', () => {
     for (const l of ['duck-stamp', 'steel-shot', 'waterfowl-hours', 'bag-limit', 'retrieve', 'lost-bird', 'lead-bird', 'dog', 'decoys', 'duck-down']) {
       expect(ids.has(l)).toBe(true);
     }
+  });
+});
+
+describe('fly fishing', () => {
+  const rainbow = fish('rainbow');
+
+  it('needs a license, a trout stamp, a rod and a fly', () => {
+    const s = newGame();
+    expect(cannotFish(s, 'fly-adams')).toBe('fishing-license');
+    addItem(s, 'fishing-license', 1);
+    expect(cannotFish(s, 'fly-adams')).toBe('trout-stamp');
+    addItem(s, 'trout-stamp', 1);
+    expect(cannotFish(s, 'fly-adams')).toBe('no-rod');
+    addItem(s, 'fly-rod', 1);
+    expect(cannotFish(s, 'fly-adams')).toBe('no-flies');
+    addItem(s, 'fly-adams', 6);
+    expect(cannotFish(s, 'fly-adams')).toBe(null);
+  });
+
+  it('rewards matching the hatch', () => {
+    expect(hatchAt(10)).toBe('mayfly');
+    expect(hatchAt(18)).toBe('caddis');
+    expect(hatchAt(14)).toBe(null);
+    expect(strikeRate(rainbow, 'mayfly', 10, 1)).toBeGreaterThan(strikeRate(rainbow, 'caddis', 10, 1) * 5);
+    // Nymphs work when nothing is hatching; dry flies barely do.
+    expect(strikeRate(rainbow, 'nymph', 14, 1)).toBeGreaterThan(strikeRate(rainbow, 'mayfly', 14, 1) * 3);
+    // Streamers want low light.
+    expect(strikeRate(fish('brown'), 'streamer', 7, 1)).toBeGreaterThan(strikeRate(fish('brown'), 'streamer', 12, 1));
+  });
+
+  it('a sloppy cast catches less', () => {
+    expect(castQuality(0)).toBe(1);
+    expect(castQuality(0.5)).toBe(0);
+    expect(strikeRate(rainbow, 'nymph', 12, 1)).toBeGreaterThan(strikeRate(rainbow, 'nymph', 12, 0));
+  });
+
+  it('enforces size and daily limits', () => {
+    expect(cannotKeep(rainbow, 10, 0)).toBe('keep-size');
+    expect(cannotKeep(rainbow, 14, 2)).toBe('fish-limit');
+    expect(cannotKeep(rainbow, 14, 1)).toBe(null);
+  });
+
+  it('snaps when you reel through a surge, throws the hook on slack', () => {
+    const calm = () => 0.99;
+    const f: FightState = { tension: 50, progress: 0, slack: 0, surge: 0 };
+    let r = 'on';
+    for (let i = 0; i < 400 && r === 'on'; i++) r = stepFight(f, true, 1, 0.05, calm);
+    expect(r).toBe('snapped');
+    const g: FightState = { tension: 50, progress: 0, slack: 0, surge: 0 };
+    r = 'on';
+    for (let i = 0; i < 400 && r === 'on'; i++) r = stepFight(g, false, 1, 0.05, calm);
+    expect(r).toBe('thrown');
+  });
+
+  it('lands a fish when you keep tension in the zone', () => {
+    const f: FightState = { tension: 50, progress: 0, slack: 0, surge: 0 };
+    let r = 'on';
+    for (let i = 0; i < 2000 && r === 'on'; i++) r = stepFight(f, f.tension < 65, 1, 0.05, () => 0.99);
+    expect(r).toBe('landed');
   });
 });

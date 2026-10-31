@@ -487,3 +487,32 @@ button.wide { width: 100%; }
   .haul-item { font-size: 11px; }
   .haul-total { font-size: 14px; }
 }
+
+/* ---------- Fishing ---------- */
+.fight {
+  position: absolute;
+  left: 50%;
+  top: 13%;
+  transform: translateX(-50%);
+  /* Narrow enough to clear the lesson card on the right and the info box on the left. */
+  width: min(260px, 30%);
+  padding: 6px 10px;
+  background: #1a120cb8;
+  font-family: var(--pixel);
+  font-size: clamp(10px, 1.2cqw, 13px);
+}
+.fight-label { color: var(--muted); margin-top: 2px; }
+.tension, .progress { position: relative; height: 10px; background: #3a2b1f; margin: 2px 0 4px; }
+.tension .zone { position: absolute; top: 0; bottom: 0; background: #5a8a3a; }
+.tension .needle { position: absolute; top: -3px; width: 3px; height: 16px; background: var(--text); transform: translateX(-1px); }
+.tension .needle.bad { background: var(--bad); }
+.progress > div { height: 100%; background: var(--accent); }
+
+.catch-card { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(420px, 86%); padding: 14px; display: flex; flex-direction: column; gap: 8px; box-shadow: 0 8px 24px #0008, 0 0 0 100vmax #0009; }
+.catch-card h2 { margin: 0; color: var(--accent); }
+.catch-card .fish-art { display: block; width: min(176px, 50%); margin: 0 auto; image-rendering: pixelated; }
+.catch-card .fish-frame { background: #32261b; padding: 14px 0; }
+.catch-card .stats { font-family: var(--pixel); font-size: 15px; }
+.inv-item.missing { opacity: 0.6; }
+
+p .icon, li .icon { width: 24px; height: 24px; vertical-align: middle; }

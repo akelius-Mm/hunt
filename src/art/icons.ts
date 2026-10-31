@@ -304,7 +304,83 @@ const SHED = [
   '........aa.',
 ];
 
+const ROD = [
+  '...........k',
+  '..........k.',
+  '.........k..',
+  '........k...',
+  '.......k....',
+  '......k.....',
+  '.....W......',
+  '....WW......',
+  '..MMW.......',
+  '..MmM.......',
+  '.WW.........',
+  'W...........',
+];
+
+const NET = [
+  '..kkkkk.....',
+  '.kW.W.Wk....',
+  'kW.W.W.Wk...',
+  'k.W.W.W.k...',
+  'kW.W.W.Wk...',
+  '.kW.W.Wk....',
+  '..kkkkkWW...',
+  '.......WW...',
+  '........WW..',
+  '.........WW.',
+];
+
+const DRY_MAYFLY = [
+  '.....PP.....',
+  '.....PP.....',
+  '...TTPPTT...',
+  '..T.TssT.T..',
+  '.....ss.....',
+  '....sss.....',
+  '...sss......',
+  '..sss.......',
+  '.kk.........',
+  'k...........',
+];
+
+const DRY_CADDIS = [
+  '............',
+  '....TTTTTT..',
+  '..TTTTTTTTT.',
+  '.TTTTTTTTTkk',
+  '..ssssssk...',
+  '...kk.......',
+];
+
+const NYMPH = [
+  '........YY..',
+  '.......YYY..',
+  '....TTTTk...',
+  '..TTyTTyk...',
+  '.TtTTtTk....',
+  'tt..........',
+];
+
+const STREAMER = [
+  '..........kk',
+  '........GGGk',
+  '....LLGGgGG.',
+  'LLLLLLGGGG..',
+  '.LLLLLGGg...',
+  'LLL.........',
+];
+
 const ICONS: Record<string, [string[], Palette?]> = {
+  'fishing-license': [CARD, { G: '#4a6ad8', F: '#cfe4f0' }],
+  'trout-stamp': [STAMP, { B: '#4f7a3e', E: '#6aa0d8', T: '#e07890' }],
+  'fly-rod': [ROD],
+  'landing-net': [NET, { W: '#3a3a42' }],
+  'fly-adams': [DRY_MAYFLY],
+  'fly-caddis': [DRY_CADDIS, { T: '#c8a870' }],
+  'fly-nymph': [NYMPH, { T: '#8a5a30', t: '#5a3a1e', y: '#c8783a' }],
+  'fly-streamer': [STREAMER],
   'hunting-license': [CARD],
   'turkey-tag': [TAG, { O: '#d84a3a', o: '#9a2a1e' }],
   'deer-tag': [TAG],

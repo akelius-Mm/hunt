@@ -12,8 +12,10 @@ import {
   type Basket,
 } from '../core/trade';
 import type { GameState, ItemCategory } from '../core/types';
+import type { FishSummary } from '../scenes/FishScene';
 import type { HuntSummary } from '../scenes/HuntScene';
 import { ANIMALS, AREAS } from '../data/animals';
+import { FISH, FLIES } from '../data/fish';
 import { ITEMS, item } from '../data/items';
 import { LESSONS, PASS_SCORE, QUIZ } from '../data/lessons';
 import { teach } from './cards';
@@ -30,6 +32,7 @@ function ammoCount(state: GameState, weaponId: string): number {
 
 export interface CampActions {
   hunt(areaId: string): void;
+  fish(): void;
   save(): void;
   reset(): void;
 }
@@ -63,6 +66,7 @@ export function showCamp(state: GameState, actions: CampActions): void {
   const dock = el(`
     <nav class="camp-dock" aria-label="Camp">
       <button class="primary" data-a="hunt">Go hunting</button>
+      <button class="primary" data-a="fish">Go fishing</button>
       <button data-a="shop">Outfitters</button>
       <button data-a="trader">Hollis</button>
       <button data-a="journal">Journal</button>
@@ -76,6 +80,7 @@ export function showCamp(state: GameState, actions: CampActions): void {
   on(dock, '[data-a]', (t) => {
     switch (t.dataset.a) {
       case 'hunt': return openAreaSelect(state, actions);
+      case 'fish': return openRiver(state, actions);
       case 'shop': return openShop(state, refresh);
       case 'trader': return openTrader(state, refresh);
       case 'journal': return openJournal(state, refresh, 'gear', actions.reset);
@@ -139,6 +144,7 @@ const SHOP_TABS: [ItemCategory | 'sell', string][] = [
   ['weapon', 'Guns & bows'],
   ['ammo', 'Ammo'],
   ['gear', 'Gear'],
+  ['fishing', 'Fishing'],
   ['sell', 'Sell'],
 ];
 
@@ -338,7 +344,7 @@ export function openTrader(state: GameState, onClose: () => void): void {
 export function openJournal(state: GameState, onClose: () => void, tab = 'gear', onReset?: () => void): void {
   const { root, body } = modal('Journal', state, onClose);
   const render = () => {
-    tabs(root, [['gear', 'Gear'], ['guide', 'Field guide'], ['lessons', `Lessons ${state.lessons.length}/${LESSONS.length}`], ['log', 'Harvest log']], tab, (t) => {
+    tabs(root, [['gear', 'Gear'], ['guide', 'Field guide'], ['fish', 'Fish log'], ['lessons', `Lessons ${state.lessons.length}/${LESSONS.length}`], ['log', 'Harvest log']], tab, (t) => {
       tab = t;
       render();
     });
@@ -366,6 +372,15 @@ export function openJournal(state: GameState, onClose: () => void, tab = 'gear',
           ? `<h3>${a.name}</h3><ul class="facts">${a.fieldGuide.map((f) => `<li>${f}</li>`).join('')}
              <li>Legal with: ${a.legalAmmo.map((id) => item(id).name).join(', ')}${a.tag ? ` · Needs a ${item(a.tag).name}` : ''}</li></ul>`
           : `<h3 class="owned">??? (not seen yet)</h3>`;
+      }
+    } else if (tab === 'fish') {
+      const log = state.fishLog ?? [];
+      for (const f of FISH) {
+        const mine = log.filter((c) => c.fish === f.id);
+        const best = mine.reduce((m, c) => Math.max(m, c.lengthIn), 0);
+        html += mine.length
+          ? `<h3>${f.name} <span class="owned">· ${mine.length} caught · best ${best} in · ${mine.filter((c) => c.released).length} released</span></h3><ul class="facts">${f.fieldGuide.map((x) => `<li>${x}</li>`).join('')}<li>Keep only ${f.keepMinIn} in or longer.</li></ul>`
+          : `<h3 class="owned">??? (not caught yet)</h3>`;
       }
     } else if (tab === 'lessons') {
       html += '<div class="lesson-grid">';
@@ -538,6 +553,59 @@ export function showHaul(state: GameState, s: HuntSummary, onDone: () => void): 
     keep.textContent = 'Continue';
     keep.classList.add('primary');
     box.querySelectorAll('.haul-item').forEach((n) => n.classList.add('sold'));
+  });
+  ui().append(box);
+}
+
+// ---------- Fly fishing ----------
+
+/** Gear check before heading to the creek. */
+function openRiver(state: GameState, actions: CampActions): void {
+  const { root, body } = modal('Aspen Creek', state, () => {});
+  root.querySelector('.tabs')!.remove();
+  const need: [string, boolean][] = [
+    ['fishing-license', true],
+    ['trout-stamp', true],
+    ['fly-rod', true],
+    ['landing-net', false],
+    ['waders', false],
+  ];
+  const flies = Object.keys(FLIES).filter((f) => has(state, f));
+  body.innerHTML = `
+    <p class="say">A cold, clear trout stream through the golden aspens. Mayflies hatch late morning, caddis in the evening.</p>
+    <div class="inv">${need.map(([id, req]) => `<span class="inv-item ${has(state, id) ? '' : 'missing'}">${iconImg(id)}${item(id).name} ${has(state, id) ? '✓' : req ? '<span class="wrong">needed</span>' : '<span class="owned">optional</span>'}</span>`).join('')}</div>
+    <p>${flies.length ? `Fly box: ${flies.map((f) => `${iconImg(f)} ${item(f).name.replace(/ \(.*\)/, '')} ×${count(state, f)}`).join(' · ')}` : '<span class="wrong">No flies yet.</span> Mae sells them in the Fishing tab.'}</p>
+    <div class="dbtns"><button class="primary" data-go>Start fishing</button></div>
+    <h3>How to fish</h3>
+    <ul class="facts">
+      <li><b>${isTouch() ? 'Touch and hold' : 'Hold the mouse'}</b> on the water where you want your fly. <b>Let go</b> when the ring closes on the target for a soft cast.</li>
+      <li>When a trout takes your fly, <b>${isTouch() ? 'tap' : 'click or press Space'}</b> right away to set the hook.</li>
+      <li>Fighting a fish: <b>hold to reel</b>, let go when it runs. Keep the needle in the green.</li>
+      <li>${isTouch() ? '🪰 changes your fly' : 'Q changes your fly'} · walk the bank to find rising trout · crouch so they don't see you.</li>
+    </ul>`;
+  on(body, '[data-go]', () => {
+    root.remove();
+    actions.fish();
+  });
+}
+
+export function showFishSummary(state: GameState, s: FishSummary, onDone: () => void): void {
+  const kept = s.catches.filter((c) => !c.released);
+  const box = el(`
+    <div class="summary-box pix haul">
+      <h2>Back from the creek</h2>
+      <div class="sub">Aspen Creek · now day ${state.day}</div>
+      ${s.catches.length ? `<ul class="facts">${s.catches.map((c) => `<li>${FISH.find((f) => f.id === c.fish)!.name}, ${c.lengthIn} in, on a ${item(c.fly).name.replace(/ \(.*\)/, '')} · ${c.released ? 'released' : 'kept'}</li>`).join('')}</ul>` : '<p>No fish today. Try matching the hatch, or a nymph when nothing is rising.</p>'}
+      <ul class="facts">
+        ${s.repGained ? `<li class="right">Community reputation +${s.repGained} for releasing fish</li>` : ''}
+        ${kept.length ? `<li>+${s.meatLbs} lbs of trout in the freezer</li>` : ''}
+        ${s.newLessons ? `<li>${s.newLessons} new lesson${s.newLessons > 1 ? 's' : ''} in your journal</li>` : ''}
+      </ul>
+      <div class="dbtns"><button class="primary" data-done>Continue</button></div>
+    </div>`);
+  box.querySelector('[data-done]')!.addEventListener('click', () => {
+    box.remove();
+    onDone();
   });
   ui().append(box);
 }
