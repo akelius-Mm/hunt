@@ -137,7 +137,7 @@ h1, h2, h3, h4, button, .hud-box, .hud-hint, .kicker, .glass-label, .money, .pri
 #cards {
   position: absolute;
   right: 1.5%;
-  top: 2.5%;
+  top: calc(2.5% + 40px);
   width: min(300px, 36%);
   display: flex;
   flex-direction: column;
@@ -520,3 +520,46 @@ button.wide { width: 100%; }
 .inv-item.missing { opacity: 0.6; }
 
 p .icon, li .icon { width: 24px; height: 24px; vertical-align: middle; }
+
+/* ---------- Sound toggle and celebration bits ---------- */
+#sound {
+  position: absolute;
+  right: 1.5%;
+  top: 2.5%;
+  z-index: 13;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  font-size: 16px;
+  background: #1a120cb8;
+  border: 2px solid #f3e6cf44;
+  border-radius: 10px;
+}
+#sound.off { opacity: 0.6; }
+.pop { animation: pop 0.35s cubic-bezier(0.2, 1.6, 0.4, 1); }
+@keyframes pop { from { transform: translate(-50%, -50%) scale(0.6); opacity: 0; } }
+.ribbon {
+  align-self: center;
+  margin-top: -4px;
+  padding: 3px 14px;
+  background: var(--accent);
+  color: #2a1608;
+  font-family: var(--pixel);
+  font-weight: 600;
+  border-radius: 8px;
+  animation: wiggle 0.6s ease-in-out 0.7s 2;
+}
+@keyframes wiggle { 25% { transform: rotate(-4deg) scale(1.08); } 75% { transform: rotate(4deg) scale(1.08); } }
+.big-num { font-size: 1.5em; color: var(--accent); }
+.flying-coin {
+  position: fixed;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, #fff4b0, #f2c040 55%, #b07a18);
+  box-shadow: 0 0 0 1px #6a4810;
+  pointer-events: none;
+  z-index: 60;
+}
+.money.bump { display: inline-block; animation: bump 0.15s ease-out; }
+@keyframes bump { 50% { transform: scale(1.3); } }
