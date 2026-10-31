@@ -81,10 +81,16 @@ document.addEventListener('click', (e) => {
   const b = (e.target as HTMLElement).closest('button');
   if (b && b.id !== 'sound' && !b.closest('#touch')) sfx.ui();
 });
-const soundBtn = document.getElementById('sound')!;
+let soundBtn = document.getElementById('sound');
+if (!soundBtn) {
+  soundBtn = document.createElement('button');
+  soundBtn.id = 'sound';
+  soundBtn.setAttribute('aria-label', 'Sound on or off');
+  document.getElementById('frame')?.append(soundBtn);
+}
 const showSound = () => {
-  soundBtn.textContent = isMuted() ? '🔇' : '🔊';
-  soundBtn.classList.toggle('off', isMuted());
+  soundBtn!.textContent = isMuted() ? '🔇' : '🔊';
+  soundBtn!.classList.toggle('off', isMuted());
 };
 soundBtn.addEventListener('click', () => {
   toggleMuted();
