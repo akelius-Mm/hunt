@@ -23,7 +23,7 @@ import { item } from '../data/items';
 import { lesson } from '../data/lessons';
 import { note, teach } from '../ui/cards';
 import { clearHud, setHud, setLabels, type Label } from '../ui/hud';
-import { hideTouch, isTouch, pad, setTouchAiming, showTouch } from '../ui/touch';
+import { hideTouch, isTouch, pad, setTouchState, showTouch } from '../ui/touch';
 
 const WORLD_W = 2400;
 const START_HOUR = 5.5;
@@ -46,6 +46,10 @@ const SMALL_GAME = ['rabbit', 'squirrel'];
 const TOUCH_ZOOM = 1.35;
 /** Zoom around a point low on the screen: crops sky, keeps the ground in view. */
 const TOUCH_ZOOM_ORIGIN_Y = 0.75;
+/** On a touchscreen the reticle sits this far above the finger (world pixels), so the finger doesn't hide the target. */
+const TOUCH_AIM_LIFT = 20;
+/** A shorter touch is treated as a tap, not an aimed shot. */
+const TOUCH_MIN_HOLD_MS = 250;
 /** Seconds before a downed duck drifts out of reach. */
 const DRIFT_SECONDS = 30;
 const GRAVITY = 320;
@@ -135,6 +139,9 @@ export class HuntScene extends Phaser.Scene {
   private summary!: HuntSummary;
   private lessonsAtStart = 0;
   private dog: Dog | null = null;
+  /** Touch aiming: a finger is held on the scene, and when it went down. */
+  private touchAim = false;
+  private touchAimStart = 0;
   private decoys: Phaser.GameObjects.Image[] = [];
   private decoyX = 0;
   /** Ducks downed today count toward the bag limit, retrieved or not. */
@@ -168,6 +175,7 @@ export class HuntScene extends Phaser.Scene {
     this.ended = false;
     this.lessonsAtStart = this.state.lessons.length;
     this.dog = null;
+    this.touchAim = false;
     this.decoys = [];
     this.ducksDowned = 0;
     this.summary = { areaName: this.area.name, harvested: [], items: {}, meatLbs: 0, fines: 0, newLessons: 0 };
@@ -193,9 +201,8 @@ export class HuntScene extends Phaser.Scene {
       hideTouch();
     });
     if (isTouch()) {
+      const weapons = ['rifle-22', 'shotgun-20', 'rifle-308', 'bow'].filter((id) => has(this.state, id));
       showTouch({
-        aim: () => this.setAiming(!this.aiming),
-        fire: () => this.aiming && this.fire(),
         crouch: () => this.toggleCrouch(),
         act: () => this.interact(),
         glass: () => this.toggleGlassing(),
@@ -203,6 +210,11 @@ export class HuntScene extends Phaser.Scene {
         stand: () => this.toggleStand(),
         swap: () => this.cycleWeapon(),
         camp: () => this.endHunt('You head back to camp.'),
+      }, {
+        glass: has(this.state, 'binoculars'),
+        call: ['grunt-call', 'box-call', 'duck-call'].some((c) => has(this.state, c)),
+        stand: has(this.state, 'tree-stand'),
+        swap: weapons.length > 1,
       });
     }
 
@@ -253,11 +265,35 @@ export class HuntScene extends Phaser.Scene {
     kb.on('keydown-ESC', () => this.endHunt('You head back to camp.'));
 
     this.input.on('pointerdown', (p: Phaser.Input.Pointer) => {
-      // On a touchscreen, touching the scene only moves the reticle; the Fire button shoots.
-      if (p.wasTouch) return;
+      // On a touchscreen: touch and hold the scene to aim, let go to shoot.
+      if (p.wasTouch) return this.startTouchAim();
       if (p.rightButtonDown()) this.setAiming(!this.aiming);
       else if (this.aiming) this.fire();
     });
+    const release = (p: Phaser.Input.Pointer) => p.wasTouch && this.endTouchAim();
+    this.input.on('pointerup', release);
+    this.input.on('pointerupoutside', release);
+  }
+
+  private startTouchAim(): void {
+    if (this.ended) return;
+    if (!this.weapon()) return note("You aren't carrying a weapon. Buy one at the outfitter, then pick it in the journal.");
+    this.touchAim = true;
+    this.touchAimStart = this.time.now;
+    this.setAiming(true);
+  }
+
+  /** Letting go shoots, but only at an animal: releasing over empty ground just lowers the weapon. */
+  private endTouchAim(): void {
+    if (!this.touchAim) return;
+    const held = this.time.now - this.touchAimStart >= TOUCH_MIN_HOLD_MS;
+    const pt = this.reticlePoint();
+    const onAnimal = this.animals.some((a) => a.mode !== 'down' && a.mode !== 'fall' && a.sprite.getBounds().contains(pt.x, pt.y));
+    // Fire while the touch is still "held", so the shot uses the crosshair the player saw.
+    if (held && onAnimal) this.fire();
+    else if (held) note('No animal under the crosshair, so you hold your fire.');
+    this.touchAim = false;
+    this.setAiming(false);
   }
 
   private startOfHuntChecks(): void {
@@ -338,8 +374,9 @@ export class HuntScene extends Phaser.Scene {
     this.player.y = this.inStand ? GROUND_Y - STAND_HEIGHT : GROUND_Y;
 
     // Holding your breath steadies your aim, but only for a few seconds.
-    const holding = this.aiming && (k.SPACE.isDown || pad.breath) && this.breath > 0;
-    setTouchAiming(this.aiming);
+    // On a touchscreen, holding your finger down is holding your breath.
+    const holding = this.aiming && (k.SPACE.isDown || this.touchAim) && this.breath > 0;
+    if (isTouch()) setTouchState(this.aiming, this.canInteract());
     this.breath = holding ? this.breath - dt : Math.min(BREATH_SECONDS, this.breath + dt * 0.8);
   }
 
@@ -686,7 +723,8 @@ export class HuntScene extends Phaser.Scene {
     const w = this.weapon()?.weapon;
     if (!w) return world;
     let sway = w.sway * (this.crouched ? 0.7 : 1) * (this.inStand ? 0.6 : 1);
-    if (this.keys.SPACE.isDown || pad.breath) sway *= this.breath > 0 ? 0.2 : 2;
+    if (this.keys.SPACE.isDown || this.touchAim) sway *= this.breath > 0 ? 0.2 : 2;
+    if (this.touchAim) world.y -= TOUCH_AIM_LIFT;
     const t = this.time.now / 1000;
     return new Phaser.Math.Vector2(world.x + Math.sin(t * 1.3) * sway + Math.sin(t * 3.1) * sway * 0.3, world.y + Math.cos(t * 1.7) * sway * 0.7);
   }
@@ -768,6 +806,13 @@ export class HuntScene extends Phaser.Scene {
       }
     }
     if (spooked && firearm) this.teachOnce('gunshot');
+  }
+
+  /** Something within reach to tag, pick up or retrieve. */
+  private canInteract(): boolean {
+    return (
+      this.animals.some((a) => a.mode === 'down' && !a.carried && this.near(a.x)) || this.sheds.some((s) => this.near(s.x))
+    );
   }
 
   private near(x: number): boolean {
@@ -953,8 +998,8 @@ export class HuntScene extends Phaser.Scene {
 
     const touch = isTouch();
     let hint = this.aiming
-      ? touch ? 'Drag on the scene to aim · hold breath, then Fire' : 'Click: shoot · hold Space: hold breath · F: lower'
-      : touch ? 'Walk slowly, crouch, and keep the wind in your face' : 'A/D move · Shift run · S crouch · F aim · B glass · C call · T stand · Esc camp';
+      ? touch ? 'Slide to put the crosshair on the animal · let go to shoot' : 'Click: shoot · hold Space: hold breath · F: lower'
+      : touch ? 'Touch and hold the scene to aim · let go to shoot' : 'A/D move · Shift run · S crouch · F aim · B glass · C call · T stand · Esc camp';
     const duckDown = this.animals.some((a) => a.def.waterfowl && a.mode === 'down' && !a.carried);
     if (duckDown && this.dog) hint = 'Duck down! Biscuit is on it';
     else if (duckDown && this.animals.some((a) => a.def.waterfowl && a.mode === 'down' && this.near(a.x))) hint = has(this.state, 'waders') ? (touch ? 'Tap ✋ to wade out and retrieve' : 'Press E to wade out and retrieve') : 'You need waders or a dog to reach it';

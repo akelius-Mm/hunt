@@ -275,12 +275,13 @@ ul.facts { margin: 4px 0 12px; padding-left: 20px; font-size: 14px; }
 #t-right { left: calc(4% + max(44px, 8.5cqw)); bottom: 5%; }
 #t-run { left: 2%; bottom: calc(8% + max(44px, 8.5cqw)); }
 #t-crouch { left: calc(4% + max(44px, 8.5cqw)); bottom: calc(8% + max(44px, 8.5cqw)); }
-#t-aim { right: 2%; bottom: 5%; }
-#t-act { right: calc(4% + max(56px, 11cqw)); bottom: 5%; }
-#t-fire { right: 2%; bottom: calc(8% + max(56px, 11cqw)); display: none; background: #a33a22c0 !important; }
-#t-breath { right: calc(4% + max(56px, 11cqw)); bottom: calc(8% + max(56px, 11cqw)); display: none; }
-#touch.aiming #t-fire, #touch.aiming #t-breath { display: block; }
-/* Tucked under the info box, top left, so the hunter in the middle of the screen stays clear. */
+/* ✋ appears only when there's something to tag or pick up. */
+#t-act { right: 2%; bottom: 5%; display: none; }
+#touch.can-act #t-act { display: block; animation: pulse 1.2s ease-in-out infinite; }
+@keyframes pulse { 50% { transform: scale(1.08); } }
+/* While aiming, the other controls fade so the scene is clear. */
+#touch .tbtn { transition: opacity 0.15s; }
+#touch.aiming .tbtn { opacity: 0.25; }
 #touch .t-row { position: absolute; left: 1.5%; top: 29%; display: flex; gap: 4px; pointer-events: auto; }
 #touch .tbtn.mini { min-width: 34px; }
 #frame:has(#touch:not([hidden])) .hud-hint { bottom: 3%; font-size: max(10px, 1.2cqw); }
