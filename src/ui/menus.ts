@@ -1,3 +1,4 @@
+import { sfx } from '../audio/sound';
 import { buy, buyPrice, canBuy, demandOf, discount, donateMeat, sell, sellPrice } from '../core/economy';
 import { count, has } from '../core/state';
 import {
@@ -542,13 +543,7 @@ export function showHaul(state: GameState, s: HuntSummary, onDone: () => void): 
     const earned = state.money - start;
     // Count the money up, like a register.
     const money = box.querySelector('.haul-total .money') as HTMLElement;
-    const t0 = performance.now();
-    const tick = (now: number) => {
-      const f = Math.min(1, (now - t0) / 700);
-      money.textContent = `$${Math.round(start + earned * f)}`;
-      if (f < 1) requestAnimationFrame(tick);
-    };
-    requestAnimationFrame(tick);
+    flyCoins([...box.querySelectorAll<HTMLElement>('.haul-item')], money, start, earned);
     (e.currentTarget as HTMLElement).replaceWith(el(`<span class="right">Sold for $${earned}!</span>`));
     const keep = box.querySelector('[data-keep]') as HTMLElement;
     keep.textContent = 'Continue';
@@ -556,6 +551,45 @@ export function showHaul(state: GameState, s: HuntSummary, onDone: () => void): 
     box.querySelectorAll('.haul-item').forEach((n) => n.classList.add('sold'));
   });
   ui().append(box);
+}
+
+/**
+ * Coins pour from each sold item into your money, which ticks up with each one,
+ * with a clink per coin. The register sound is the reward.
+ */
+function flyCoins(from: HTMLElement[], money: HTMLElement, start: number, earned: number): void {
+  const to = money.getBoundingClientRect();
+  const coins = Math.min(18, Math.max(4, from.length * 3));
+  let landed = 0;
+  for (let i = 0; i < coins; i++) {
+    const src = from[i % from.length].getBoundingClientRect();
+    const c = document.createElement('div');
+    c.className = 'flying-coin';
+    const x0 = src.left + src.width * (0.2 + Math.random() * 0.3);
+    const y0 = src.top + src.height / 2;
+    c.style.left = `${x0}px`;
+    c.style.top = `${y0}px`;
+    document.body.append(c);
+    const dx = to.left + to.width / 2 - x0;
+    const dy = to.top + to.height / 2 - y0;
+    const delay = i * 55;
+    c.animate(
+      [
+        { transform: 'translate(0, 0) scale(1)' },
+        { transform: `translate(${dx * 0.5}px, ${dy * 0.5 - 60}px) scale(1.3)`, offset: 0.5 },
+        { transform: `translate(${dx}px, ${dy}px) scale(0.7)` },
+      ],
+      { duration: 520, delay, easing: 'cubic-bezier(0.4, 0, 0.6, 1)', fill: 'backwards' },
+    ).onfinish = () => {
+      c.remove();
+      landed++;
+      sfx.coin();
+      money.textContent = `$${Math.round(start + (earned * landed) / coins)}`;
+      money.classList.remove('bump');
+      void money.offsetWidth;
+      money.classList.add('bump');
+    };
+  }
 }
 
 // ---------- Fly fishing ----------

@@ -2,7 +2,10 @@ import Phaser from 'phaser';
 import { Backdrop } from '../art/backdrop';
 import { setupCameras, type SceneCameras } from '../art/cameras';
 import { createSprites, frameKey, HAND, spriteImage } from '../art/sprites';
+import { burst, DUST, floatText, SPLASH } from '../art/juice';
+import { nightness } from '../art/palette';
 import { GROUND_Y, SCREEN_H, SCREEN_W, VIEW_W, WATER_Y } from '../art/view';
+import { setAmbience, setNight, sfx } from '../audio/sound';
 import {
   anyLoadedAmmo,
   checkShot,
@@ -135,6 +138,11 @@ export class HuntScene extends Phaser.Scene {
   private hour = START_HOUR;
   private windDir: 1 | -1 = 1;
   private windTimer = 0;
+  /** Hit-stop: the world holds still for a beat when a shot lands. */
+  private freezeUntil = 0;
+  /** After a clean shot the scope stays on the animal a moment before easing out. */
+  private holdZoomUntil = 0;
+  private lastStep = -1;
   private spawnTimer = 0;
   private lastCall = -999;
   private crouched = false;
@@ -201,6 +209,7 @@ export class HuntScene extends Phaser.Scene {
     createSprites(this);
     this.backdrop = new Backdrop(this, { scrolling: true, lake: this.area.lake });
     this.cams = setupCameras(this, this.backdrop);
+    setAmbience(this.area.lake ? 'marsh' : 'forest');
     this.viewLeft = 0;
     this.scentGfx = this.add.graphics().setDepth(5);
     this.standGfx = this.add.graphics().setDepth(18);
@@ -290,6 +299,7 @@ export class HuntScene extends Phaser.Scene {
         b.bird.y = b.y - (Math.sin(b.t * 6) > 0.92 ? 1 : 0);
         if (Math.abs(this.player.x - b.x) < 70 && this.movement !== 'still') {
           b.flying = true;
+          sfx.flush();
           b.dir = this.player.x < b.x ? 1 : -1;
           b.bird.setFlipX(b.dir === -1);
         }
@@ -400,6 +410,7 @@ export class HuntScene extends Phaser.Scene {
 
   update(_time: number, deltaMs: number): void {
     if (this.ended) return;
+    if (this.time.now < this.freezeUntil) return;
     const dt = Math.min(deltaMs / 1000, 0.05);
 
     this.hour += dt * HOURS_PER_SEC;
@@ -419,6 +430,7 @@ export class HuntScene extends Phaser.Scene {
     this.updatePerches(dt);
     this.viewLeft = this.cams.follow(this.player.x, WORLD_W);
     this.backdrop.update(this.hour, this.viewLeft, dt, this.windDir);
+    setNight(nightness(this.hour));
     this.applyLight();
     this.drawScent();
     this.drawWeapon();
@@ -455,7 +467,10 @@ export class HuntScene extends Phaser.Scene {
     // Walk cycle: step, stand, other step, stand.
     this.walkAnim += dt * (this.movement === 'run' ? 12 : 7);
     const cycle = ['walk1', 'idle', 'walk2', 'idle'];
-    const frame = this.crouched ? 'crouch' : this.movement === 'still' ? 'idle' : cycle[Math.floor(this.walkAnim) % 4];
+    const step = Math.floor(this.walkAnim) % 4;
+    const frame = this.crouched ? 'crouch' : this.movement === 'still' ? 'idle' : cycle[step];
+    if (this.movement !== 'still' && step !== this.lastStep && step % 2 === 0) sfx.step(this.movement === 'sneak');
+    this.lastStep = this.movement === 'still' ? -1 : step;
     this.player.setTexture(this.playerKey(frame));
     this.player.y = this.inStand ? GROUND_Y - STAND_HEIGHT : GROUND_Y;
 
@@ -524,6 +539,7 @@ export class HuntScene extends Phaser.Scene {
       if (distYards < 70 && this.onScreen(a.x) && !this.state.seenAnimals.includes(a.def.id)) {
         this.state.seenAnimals.push(a.def.id);
         note(`📓 New field guide entry: ${a.def.name}.`);
+        sfx.fanfare();
       }
       this.animateAnimal(a, dt, distYards);
     }
@@ -551,6 +567,7 @@ export class HuntScene extends Phaser.Scene {
     if (a.mode === 'flee' || a.mode === 'down') return;
     a.mode = 'flee';
     a.dir = a.x >= this.player.x ? 1 : -1;
+    if (this.onScreen(a.x)) sfx.flee();
     if (cause && this.onScreen(a.x)) this.teachOnce(cause);
   }
 
@@ -607,6 +624,8 @@ export class HuntScene extends Phaser.Scene {
       a.x += a.dir * fly * 0.3 * dt;
       if (a.y >= WATER_Y) {
         a.mode = 'down';
+        sfx.splash();
+        burst(this, a.x, WATER_Y - 1, { colors: SPLASH, count: 12, speed: 35, up: 1 });
         const splash = this.add.rectangle(Math.round(a.x), WATER_Y - 1, 10, 1, 0xffffff, 0.7).setDepth(11);
         this.tweens.add({ targets: splash, alpha: 0, scaleX: 2, duration: 600, onComplete: () => splash.destroy() });
         if (!this.dog && !has(this.state, 'waders')) this.teachOnce('retrieve', true);
@@ -636,6 +655,7 @@ export class HuntScene extends Phaser.Scene {
         a.mode = 'flee';
         a.landX = undefined;
         a.dir = dx >= 0 ? 1 : -1;
+        if (this.onScreen(a.x)) sfx.flush();
         if (sense.cause && this.onScreen(a.x)) this.teachOnce(sense.cause);
       }
 
@@ -673,6 +693,7 @@ export class HuntScene extends Phaser.Scene {
     if (distYards < 70 && this.onScreen(a.x) && !this.state.seenAnimals.includes(a.def.id)) {
       this.state.seenAnimals.push(a.def.id);
       note(`📓 New field guide entry: ${a.def.name}.`);
+        sfx.fanfare();
     }
     const s = a.sprite;
     a.anim += dt * 8;
@@ -741,6 +762,8 @@ export class HuntScene extends Phaser.Scene {
     this.summary.meatLbs += r.meatLbs;
     for (const [id, q] of Object.entries(r.items)) this.summary.items[id] = (this.summary.items[id] ?? 0) + q;
     note(message);
+    sfx.coin();
+    floatText(this, this.player.x, this.player.y - 34, `+${r.meatLbs} lb ${a.def.meatName.toLowerCase()}`, '#f2a65a', true);
     for (const l of r.lessons) this.teachOnce(l);
     this.removeAnimal(a);
   }
@@ -790,6 +813,7 @@ export class HuntScene extends Phaser.Scene {
     // Zoom toward where the player is pointing; back out when they lower the weapon.
     const p = this.input.activePointer;
     if (on) this.cams.zoomTo(AIM_ZOOM, p.x / SCREEN_W, p.y / SCREEN_H);
+    else if (this.time.now < this.holdZoomUntil) this.time.delayedCall(this.holdZoomUntil - this.time.now, () => !this.aiming && this.cams.zoomTo(1));
     else this.cams.zoomTo(1);
   }
 
@@ -852,6 +876,7 @@ export class HuntScene extends Phaser.Scene {
     if (s.flipX) col = s.displayWidth - 1 - col;
     const result = resolveShot(target.def, w.kind, zoneAt(target.def, col, row));
 
+    this.shotFeedback(target, pt, result.result);
     if (result.result === 'clean' && target.def.waterfowl) {
       target.mode = 'fall';
       target.timer = 0;
@@ -875,8 +900,34 @@ export class HuntScene extends Phaser.Scene {
     this.teachOnce(shown, true);
   }
 
+  /** How a shot lands: a beat of stillness, dust or feathers, a word over the animal. */
+  private shotFeedback(target: Animal, pt: Phaser.Math.Vector2, result: string): void {
+    const top = target.sprite.y - target.sprite.displayHeight;
+    if (result === 'clean') {
+      sfx.hit();
+      this.freezeUntil = this.time.now + 110;
+      this.holdZoomUntil = this.time.now + 900;
+      burst(this, pt.x, pt.y, { colors: target.def.waterfowl ? [0x6a5a48, 0x8a7a68, 0xd8d0c0] : DUST, count: 14, speed: 30, up: 0.3, gravity: target.def.waterfowl ? 30 : 120, life: target.def.waterfowl ? 1100 : 600 });
+      floatText(this, target.x, top - 2, 'Clean shot!', '#a8d47a', true);
+    } else if (result === 'wounded') {
+      sfx.hit();
+      burst(this, pt.x, pt.y, { colors: DUST, count: 6, speed: 20 });
+      floatText(this, target.x, top - 2, 'Wounded…', '#f07a62');
+    } else {
+      burst(this, pt.x, Math.min(pt.y + 6, GROUND_Y), { colors: DUST, count: 8, speed: 18, up: 1 });
+      floatText(this, target.x, top - 2, 'Miss', '#bfa98a');
+      this.time.delayedCall(250, () => sfx.aww());
+    }
+  }
+
   private shotEffects(pt: Phaser.Math.Vector2, firearm: boolean, target?: Animal): void {
     const tip = this.weaponTip();
+    if (!firearm) sfx.bow();
+    else sfx.gunshot(this.state.equippedWeapon?.startsWith('shotgun') ?? false);
+    if (firearm) {
+      // A puff of smoke drifting off the muzzle.
+      burst(this, tip.x, tip.y, { colors: [0xe8e4dc, 0xc8c4bc], count: 8, speed: 10, up: 0.6, gravity: -20, life: 900, size: 2 });
+    }
     const flash = this.add.rectangle(Math.round(tip.x), Math.round(tip.y), firearm ? 4 : 2, firearm ? 3 : 1, 0xfff1a8).setDepth(25);
     this.tweens.add({ targets: flash, alpha: 0, duration: 90, onComplete: () => flash.destroy() });
     const puff = this.add.rectangle(Math.round(pt.x), Math.round(pt.y), 2, 2, 0xffffff, 0.9).setDepth(26);
@@ -928,6 +979,8 @@ export class HuntScene extends Phaser.Scene {
       note(`${down.def.tag ? '🏷️ Tagged. ' : ''}Field dressed: ${got || 'no parts'} + ${r.meatLbs} lbs ${down.def.meatName.toLowerCase()}.`);
       for (const l of r.lessons) this.teachOnce(l);
       this.tweens.add({ targets: down.sprite, alpha: 0, duration: 500, onComplete: () => this.removeAnimal(down) });
+      sfx.coin();
+      floatText(this, this.player.x, this.player.y - 34, `+${r.meatLbs} lb ${down.def.meatName.toLowerCase()}`, '#f2a65a', true);
       return;
     }
     const shed = this.sheds.find((s) => this.near(s.x));

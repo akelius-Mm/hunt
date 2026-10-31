@@ -3,6 +3,7 @@ import { Backdrop } from '../art/backdrop';
 import { setupCameras } from '../art/cameras';
 import { createSprites, frameKey, spriteImage } from '../art/sprites';
 import { GROUND_Y, VIEW_W } from '../art/view';
+import { setAmbience, setNight } from '../audio/sound';
 import { has } from '../core/state';
 import type { GameState } from '../core/types';
 
@@ -115,6 +116,8 @@ export class CampScene extends Phaser.Scene {
   create(): void {
     createSprites(this);
     this.backdrop = new Backdrop(this, { scrolling: false });
+    setAmbience('camp');
+    setNight(0);
     setupCameras(this, this.backdrop).follow(VIEW_W / 2, VIEW_W, 1);
     if (!this.textures.exists('camp')) {
       // Drawn in world units, like the sprites.

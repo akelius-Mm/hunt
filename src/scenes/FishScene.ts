@@ -2,7 +2,10 @@ import Phaser from 'phaser';
 import { Backdrop } from '../art/backdrop';
 import { setupCameras, type SceneCameras } from '../art/cameras';
 import { createSprites, frameKey, HAND, spriteImage } from '../art/sprites';
-import { GROUND_Y, LAKE_HORIZON, VIEW_W } from '../art/view';
+import { burst, floatText, SPLASH } from '../art/juice';
+import { GROUND_Y, LAKE_HORIZON, PX, SCREEN_H, SCREEN_W, VIEW_W } from '../art/view';
+import { setAmbience, setNight, sfx } from '../audio/sound';
+import { nightness } from '../art/palette';
 import {
   cannotFish,
   cannotKeep,
@@ -111,6 +114,9 @@ export class FishScene extends Phaser.Scene {
   private fight: FightState = newFight();
   private hookAt = new Phaser.Math.Vector2();
   private reeling = false;
+  private clickTimer = 0;
+  private lastStroke = 0;
+  private lastStep = -1;
   private jumpTimer = 0;
   private castsWithoutStrike = 0;
   /** When a press started during a drift (0 when none). */
@@ -155,6 +161,7 @@ export class FishScene extends Phaser.Scene {
     this.backdrop = new Backdrop(this, { scrolling: true, lake: true });
     this.cams = setupCameras(this, this.backdrop);
     this.viewLeft = 0;
+    setAmbience('creek');
     this.gfx = this.add.graphics().setDepth(22);
     this.angler = spriteImage(this, 160, GROUND_Y, frameKey('angler', 'idle')).setOrigin(0.5, 1).setDepth(20);
 
@@ -288,6 +295,7 @@ export class FishScene extends Phaser.Scene {
     this.flyPos.y = Phaser.Math.Clamp(this.flyPos.y, LAKE_HORIZON + 8, GROUND_Y - 6);
     this.phase = 'flying';
     this.phaseTime = 0;
+    sfx.cast();
   }
 
   private landFly(): void {
@@ -296,6 +304,8 @@ export class FishScene extends Phaser.Scene {
     this.driftFromX = this.flyPos.x;
     this.castsWithoutStrike++;
     this.addRing(this.flyPos.x, this.flyPos.y);
+    sfx.plop();
+    if (this.quality < 0.25) burst(this, this.flyPos.x, this.flyPos.y, { colors: SPLASH, count: 8, speed: 30, up: 1 });
     if (this.quality < 0.25) {
       // A splashy cast scares every trout nearby.
       for (const t of this.trout) if (Math.abs(t.x - this.flyPos.x) < 50) t.spooked = 12;
@@ -323,6 +333,9 @@ export class FishScene extends Phaser.Scene {
     this.hookAt.copy(this.flyPos);
     this.jumpTimer = 0.4;
     this.castsWithoutStrike = 0;
+    sfx.hookSet();
+    floatText(this, this.flyPos.x, this.flyPos.y - 6, 'Fish on!', '#f2a65a', true);
+    burst(this, this.flyPos.x, this.flyPos.y, { colors: SPLASH, count: 12, speed: 40, up: 1 });
     note(`Fish on! A ${this.hooked.def.name.toLowerCase()}.`);
   }
 
@@ -340,6 +353,7 @@ export class FishScene extends Phaser.Scene {
     this.updateLine(dt);
     this.viewLeft = this.cams.follow(this.angler.x, WORLD_W);
     this.backdrop.update(this.hour, this.viewLeft, dt, 1);
+    setNight(nightness(this.hour));
     this.angler.setTint(this.backdrop.light);
     this.draw();
     this.updateHud();
@@ -375,8 +389,11 @@ export class FishScene extends Phaser.Scene {
       // Walking the bank upright spooks fish holding close to it.
       if (!this.crouched) for (const t of this.trout) if (Math.abs(t.x - this.angler.x) < 30 && t.y > GROUND_Y - 24) t.spooked = Math.max(t.spooked, 6);
     }
-    this.walkAnim += dt * 7;
-    const frame = this.crouched ? 'crouch' : dir ? ['walk1', 'idle', 'walk2', 'idle'][Math.floor(this.walkAnim) % 4] : 'idle';
+    this.walkAnim += dt * (speed > 40 ? 12 : 7);
+    const step = Math.floor(this.walkAnim) % 4;
+    const frame = this.crouched ? 'crouch' : dir ? ['walk1', 'idle', 'walk2', 'idle'][step] : 'idle';
+    if (dir && step !== this.lastStep && step % 2 === 0) sfx.step(this.crouched);
+    this.lastStep = dir ? step : -1;
     this.angler.setTexture(frameKey('angler', frame)).setFlipX(this.facing === -1);
     if (isTouch()) setTouchState(this.phase === 'loading' || this.phase === 'fighting', false);
   }
@@ -409,6 +426,11 @@ export class FishScene extends Phaser.Scene {
     this.phaseTime += dt;
     if (this.phase === 'loading') {
       this.loadTime += dt;
+      const stroke = Math.floor(this.loopPhase() * 2 + (this.loadTime / LOOP_SECONDS) * 2);
+      if (stroke !== this.lastStroke) {
+        this.lastStroke = stroke;
+        sfx.swish();
+      }
       const p = this.input.activePointer;
       if (p.isDown) {
         const w = this.cams.world.getWorldPoint(p.x, p.y);
@@ -454,6 +476,8 @@ export class FishScene extends Phaser.Scene {
             this.phaseTime = 0;
             this.addRing(this.flyPos.x, this.flyPos.y);
             this.addRing(this.flyPos.x, this.flyPos.y);
+            sfx.bite();
+            burst(this, this.flyPos.x, this.flyPos.y, { colors: SPLASH, count: 10, speed: 34, up: 1 });
             break;
           }
         }
@@ -464,6 +488,7 @@ export class FishScene extends Phaser.Scene {
         if (this.hooked) this.hooked.spooked = 4;
         this.hooked = null;
         this.phase = 'drifting';
+        sfx.aww();
         this.teachOnce('set-hook', true);
       }
     } else if (this.phase === 'fighting' && this.hooked) {
@@ -477,12 +502,28 @@ export class FishScene extends Phaser.Scene {
       this.hooked.x = Phaser.Math.Linear(this.hookAt.x, this.angler.x + this.facing * 14, f) + Math.sin(this.time.now / 300) * 6 * (1 - f);
       this.hooked.y = Phaser.Math.Linear(this.hookAt.y, GROUND_Y - 6, f);
       this.jumpTimer -= dt;
-      if (running(this.fight, strength) && this.jumpTimer <= 0) this.jumpTimer = 1.6;
+      const runs = running(this.fight, strength);
+      if (runs && this.jumpTimer <= 0) {
+        this.jumpTimer = 1.6;
+        sfx.splash();
+        burst(this, this.hooked.x, this.hooked.y - 2, { colors: SPLASH, count: 14, speed: 45, up: 1 });
+      }
+      // The reel clicks while you crank; the drag sings while it runs.
+      this.clickTimer -= dt;
+      if (this.clickTimer <= 0) {
+        if (runs) {
+          sfx.drag();
+          this.clickTimer = 0.05;
+        } else if (holding) {
+          sfx.reelClick();
+          this.clickTimer = 0.075;
+        }
+      }
       if (result === 'snapped') this.loseFish('tippet', true);
       else if (result === 'thrown') this.loseFish('slack', false);
       else if (result === 'landed') {
         if (!has(this.state, 'landing-net') && Math.random() < NO_NET_SLIP) this.loseFish('net', false);
-        else this.showCatch();
+        else this.revealCatch();
       }
     }
     // Bugs over the water during a hatch.
@@ -510,15 +551,53 @@ export class FishScene extends Phaser.Scene {
     this.hooked = null;
     this.reeling = false;
     this.phase = 'idle';
+    if (lesson === 'tippet') sfx.snap();
+    else sfx.aww();
     this.teachOnce(lesson, true);
   }
 
   // ---------- Catch card ----------
 
-  private showCatch(): void {
+  /** The landing moment: the camera leans in and the trout swings up out of the water into your hand. */
+  private revealCatch(): void {
     const t = this.hooked!;
     this.phase = 'card';
     this.reeling = false;
+    const sx = ((this.angler.x - this.viewLeft) * PX) / SCREEN_W;
+    const sy = ((this.angler.y - 12) * PX) / SCREEN_H;
+    this.cams.zoomTo(2.2, sx, sy);
+    sfx.splash(true);
+    burst(this, t.x, t.y, { colors: SPLASH, count: 22, speed: 55, up: 1 });
+    const key = frameKey(`trout-${t.def.id}`, 'swim');
+    const fish = spriteImage(this, t.x, t.y, key).setDepth(24).setTint(this.backdrop.light).setFlipX(t.x < this.angler.x);
+    this.jumpSprite?.setVisible(false);
+    const hand = this.hand();
+    const from = { x: t.x, y: t.y };
+    this.tweens.addCounter({
+      from: 0,
+      to: 1,
+      duration: 650,
+      ease: 'Sine.InOut',
+      onUpdate: (tw) => {
+        const f = tw.getValue() ?? 0;
+        fish.setPosition(Phaser.Math.Linear(from.x, hand.x + this.facing * 4, f), Phaser.Math.Linear(from.y, hand.y, f) - Math.sin(f * Math.PI) * 16);
+        fish.setAngle(Math.sin(f * Math.PI * 4) * 20);
+      },
+      onComplete: () => {
+        fish.setAngle(0);
+        // A wiggle in your hand, drips falling off.
+        this.tweens.add({ targets: fish, angle: { from: -12, to: 12 }, duration: 90, yoyo: true, repeat: 3 });
+        burst(this, fish.x, fish.y, { colors: SPLASH, count: 6, speed: 12, up: 0.2, gravity: 120 });
+        this.time.delayedCall(350, () => this.showCatch(fish));
+      },
+    });
+  }
+
+  private showCatch(held: Phaser.GameObjects.Image): void {
+    const t = this.hooked!;
+    this.phase = 'card';
+    this.reeling = false;
+    const best = (this.state.fishLog ?? []).filter((c) => c.fish === t.def.id).reduce((m, c) => Math.max(m, c.lengthIn), 0);
     const lengthIn = Math.round(t.def.minIn + Math.pow(Math.random(), 1.6) * (t.def.maxIn - t.def.minIn));
     const keepBlock = cannotKeep(t.def, lengthIn, this.keptToday);
     const art = this.textures.get(frameKey(`trout-${t.def.id}`, 'swim')).getSourceImage() as HTMLCanvasElement;
@@ -526,12 +605,14 @@ export class FishScene extends Phaser.Scene {
     const firstOfKind = !this.state.seenAnimals.includes(t.def.id);
     if (firstOfKind) this.state.seenAnimals.push(t.def.id);
 
+    const record = !firstOfKind && lengthIn > best;
     const card = document.createElement('div');
-    card.className = 'catch-card pix';
+    card.className = 'catch-card pix pop';
     card.innerHTML = `
-      <h2>${t.def.name}${firstOfKind ? ' · first one!' : ''}</h2>
+      ${firstOfKind ? '<div class="ribbon">New species!</div>' : record ? '<div class="ribbon">New record!</div>' : ''}
+      <h2>${t.def.name}</h2>
       <div class="fish-frame"><img class="fish-art" src="${art.toDataURL()}" alt="${t.def.name}"></div>
-      <div class="stats">${lengthIn} in · about ${troutLbs(lengthIn)} lb · on a ${flyName}</div>
+      <div class="stats"><span class="big-num" data-len>0</span> in · about ${troutLbs(lengthIn)} lb · on a ${flyName}${best && !record ? ` <span class="owned">(best ${best} in)</span>` : ''}</div>
       <ul class="facts">
         <li>Keep only ${t.def.keepMinIn} in or longer · ${2 - this.keptToday} more trout may be kept today</li>
         <li>${t.def.fieldGuide[0]}</li>
@@ -543,9 +624,32 @@ export class FishScene extends Phaser.Scene {
       ${keepBlock ? `<p class="reason">${keepBlock === 'keep-size' ? `Under ${t.def.keepMinIn} inches: it has to go back.` : 'You have kept your limit today.'}</p>` : ''}`;
     document.getElementById('ui')!.append(card);
     if (keepBlock) this.teachOnce(keepBlock, false);
+    // The tape measure: count the inches up, then celebrate anything new.
+    const len = card.querySelector('[data-len]') as HTMLElement;
+    const t0 = performance.now();
+    const grow = (now: number) => {
+      const f = Math.min(1, (now - t0) / 700);
+      len.textContent = String(Math.round(lengthIn * (1 - Math.pow(1 - f, 3))));
+      if (f < 1) requestAnimationFrame(grow);
+      else if (firstOfKind || record) sfx.fanfare();
+      else sfx.ui();
+    };
+    requestAnimationFrame(grow);
 
     const done = (released: boolean) => {
       card.remove();
+      this.cams.zoomTo(1);
+      if (released) {
+        // Back into the water with a flick of the tail.
+        sfx.splash();
+        this.tweens.add({ targets: held, x: held.x + this.facing * 18, y: GROUND_Y - 4, alpha: 0, duration: 450, ease: 'Quad.In', onComplete: () => held.destroy() });
+        this.time.delayedCall(380, () => burst(this, held.x, GROUND_Y - 4, { colors: SPLASH, count: 10, speed: 35, up: 1 }));
+        floatText(this, this.angler.x, this.angler.y - 34, 'Reputation +1', '#a8d47a');
+      } else {
+        sfx.coin();
+        this.tweens.add({ targets: held, alpha: 0, duration: 300, onComplete: () => held.destroy() });
+        floatText(this, this.angler.x, this.angler.y - 34, `+${Math.max(1, Math.round(troutLbs(lengthIn)))} lb trout`, '#f2a65a');
+      }
       const c: FishCatch = { day: this.state.day, fish: t.def.id, lengthIn, fly: this.fly!, released };
       (this.state.fishLog ??= []).push(c);
       this.summary.catches.push(c);
