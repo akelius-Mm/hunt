@@ -404,7 +404,10 @@ export class FishScene extends Phaser.Scene {
       }
     } else if (this.phase === 'fighting' && this.hooked) {
       const strength = 0.6 + (this.hooked.def.maxIn / 24) * 0.6;
-      const result = stepFight(this.fight, this.reeling || this.keys.SPACE.isDown, strength, dt);
+      // Reeling is simply "a finger, the mouse or Space is held down" right now, including
+      // the same touch that set the hook.
+      const holding = this.reeling || this.keys.SPACE.isDown || this.input.activePointer.isDown;
+      const result = stepFight(this.fight, holding, strength, dt);
       // The fish comes toward the bank as you gain line.
       const f = this.fight.progress / 100;
       this.hooked.x = Phaser.Math.Linear(this.hookAt.x, this.angler.x + this.facing * 14, f) + Math.sin(this.time.now / 300) * 6 * (1 - f);
