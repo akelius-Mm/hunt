@@ -344,7 +344,8 @@ export function openTrader(state: GameState, onClose: () => void): void {
 export function openJournal(state: GameState, onClose: () => void, tab = 'gear', onReset?: () => void): void {
   const { root, body } = modal('Journal', state, onClose);
   const render = () => {
-    tabs(root, [['gear', 'Gear'], ['guide', 'Field guide'], ['fish', 'Fish log'], ['lessons', `Lessons ${state.lessons.length}/${LESSONS.length}`], ['log', 'Harvest log']], tab, (t) => {
+    const caught = new Set((state.fishLog ?? []).map((c) => c.fish)).size;
+    tabs(root, [['gear', 'Gear'], ['guide', `Field guide ${state.seenAnimals.length}/${ANIMALS.length}`], ['fish', `Fish log ${caught}/${FISH.length}`], ['lessons', `Lessons ${state.lessons.length}/${LESSONS.length}`], ['log', 'Harvest log']], tab, (t) => {
       tab = t;
       render();
     });

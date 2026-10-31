@@ -1,11 +1,10 @@
 import Phaser from 'phaser';
-import { PX } from './view';
 
 /**
- * Sprites are pixel maps drawn one texture pixel per screen pixel, the same pixel size as
- * the scenery. In world units a sprite is its map size divided by PX (so a 30-pixel hunter
- * stands 15 units tall), which keeps characters small in a wide landscape.
- * Hit zones in src/data/animals.ts and HAND use map (texture) pixels.
+ * Sprites are pixel maps in world units: one map pixel is one world unit, drawn PX screen
+ * pixels wide. Characters have chunkier pixels than the finely drawn scenery, which makes
+ * them read clearly at a distance. Hit zones in src/data/animals.ts and HAND use map pixels,
+ * which are world units.
  */
 
 type Palette = Record<string, string>;
@@ -394,12 +393,37 @@ export function pixelCanvas(rows: string[], palette: Palette, width: number): HT
       ctx.fillRect(x, y, 1, 1);
     });
   });
+  lightSprite(ctx, width, grid.length);
   return canvas;
 }
 
-/** An image of a sprite texture, sized in world units (map pixels / PX). */
+/**
+ * One light source for everything: the sun is up and to the left, like in the scenery.
+ * Pixels whose top or left neighbor is empty catch the light; those whose bottom or
+ * right neighbor is empty fall into shadow. A cheap, consistent rim light.
+ */
+function lightSprite(ctx: CanvasRenderingContext2D, w: number, h: number): void {
+  const img = ctx.getImageData(0, 0, w, h);
+  const d = img.data;
+  const solid = (x: number, y: number) => x >= 0 && y >= 0 && x < w && y < h && d[(y * w + x) * 4 + 3] > 0;
+  const out = new Uint8ClampedArray(d);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      if (!solid(x, y)) continue;
+      const o = (y * w + x) * 4;
+      const lit = !solid(x, y - 1) || !solid(x - 1, y);
+      const shaded = !lit && (!solid(x, y + 1) || !solid(x + 1, y));
+      if (!lit && !shaded) continue;
+      for (let c = 0; c < 3; c++) out[o + c] = lit ? d[o + c] + (255 - d[o + c]) * 0.22 : d[o + c] * 0.78;
+    }
+  }
+  img.data.set(out);
+  ctx.putImageData(img, 0, 0);
+}
+
+/** An image of a sprite texture, sized in world units (one map pixel each). */
 export function spriteImage(scene: Phaser.Scene, x: number, y: number, key: string): Phaser.GameObjects.Image {
-  return scene.add.image(x, y, key).setScale(1 / PX);
+  return scene.add.image(x, y, key);
 }
 
 /** Scale2x for any canvas (for art drawn with canvas calls rather than pixel maps). */

@@ -46,7 +46,7 @@ const actions: CampActions = {
 function goCamp(): void {
   game.scene.stop('hunt');
   game.scene.stop('fish');
-  game.scene.start('camp');
+  game.scene.start('camp', { state });
   showCamp(state, actions);
 }
 

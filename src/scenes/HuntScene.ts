@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import { Backdrop } from '../art/backdrop';
 import { setupCameras, type SceneCameras } from '../art/cameras';
 import { createSprites, frameKey, HAND, spriteImage } from '../art/sprites';
-import { GROUND_Y, PX, SCREEN_H, SCREEN_W, VIEW_W, WATER_Y } from '../art/view';
+import { GROUND_Y, SCREEN_H, SCREEN_W, VIEW_W, WATER_Y } from '../art/view';
 import {
   anyLoadedAmmo,
   checkShot,
@@ -24,9 +24,10 @@ import { item } from '../data/items';
 import { lesson } from '../data/lessons';
 import { note, teach } from '../ui/cards';
 import { clearHud, setHud, setLabels, type Label } from '../ui/hud';
+import { Gestures } from '../ui/gestures';
 import { hideTouch, isTouch, pad, setTouchState, showTouch } from '../ui/touch';
 
-const WORLD_W = 2400;
+const WORLD_W = 3200;
 const START_HOUR = 5.5;
 const END_HOUR = 19.5;
 /** A full day takes this many real seconds. */
@@ -37,18 +38,17 @@ const BREATH_SECONDS = 3;
 const FINE_NO_ORANGE = 40;
 /** Without binoculars, animals farther than this are hard to make out. */
 const CLEAR_SIGHT_YARDS = 110;
-const STAND_HEIGHT = 34;
+const STAND_HEIGHT = 60;
 /** How close you must be to tag an animal or pick something up, in pixels. */
 const REACH = 24;
 
 const SPEED: Record<Movement, number> = { still: 0, sneak: 22, walk: 46, run: 100 };
 const SMALL_GAME = ['rabbit', 'squirrel'];
 /** Aiming zooms in toward the target, like looking through a scope. */
-const AIM_ZOOM = 2.4;
+const AIM_ZOOM = 2.2;
 /** On a touchscreen the reticle sits this far above the finger (world pixels), so the finger doesn't hide the target. */
-const TOUCH_AIM_LIFT = 6;
+const TOUCH_AIM_LIFT = 14;
 /** A shorter touch is treated as a tap, not an aimed shot. */
-const TOUCH_MIN_HOLD_MS = 250;
 /** Seconds before a downed duck drifts out of reach. */
 const DRIFT_SECONDS = 30;
 const GRAVITY = 320;
@@ -94,6 +94,15 @@ interface Animal {
   drift: number;
   /** The dog has this bird in its mouth. */
   carried?: boolean;
+}
+
+interface Perched {
+  bird: Phaser.GameObjects.Image;
+  x: number;
+  y: number;
+  flying: boolean;
+  t: number;
+  dir: 1 | -1;
 }
 
 interface Dog {
@@ -142,8 +151,13 @@ export class HuntScene extends Phaser.Scene {
   private summary!: HuntSummary;
   private lessonsAtStart = 0;
   private dog: Dog | null = null;
-  /** Touch aiming: a finger is held on the scene, and when it went down. */
+  /** Small birds resting on stumps; they flush when the hunter walks up. */
+  private perched: Perched[] = [];
+  /** Touch aiming: a finger is held on the scene. */
   private touchAim = false;
+  private gestures = new Gestures();
+  /** Where a tap asked the hunter to walk, and whether to run there. */
+  private walkTo: { x: number; run: boolean } | null = null;
   private decoys: Phaser.GameObjects.Image[] = [];
   private decoyX = 0;
   /** Ducks downed today count toward the bag limit, retrieved or not. */
@@ -203,7 +217,6 @@ export class HuntScene extends Phaser.Scene {
     if (isTouch()) {
       const weapons = ['rifle-22', 'shotgun-20', 'rifle-308', 'bow'].filter((id) => has(this.state, id));
       showTouch({
-        crouch: () => this.toggleCrouch(),
         act: () => this.interact(),
         glass: () => this.toggleGlassing(),
         call: () => this.useCall(),
@@ -222,13 +235,14 @@ export class HuntScene extends Phaser.Scene {
       if (has(this.state, 'decoys')) {
         this.decoyX = 260;
         for (let i = 0; i < 7; i++) {
-          this.decoys.push(spriteImage(this, this.decoyX + i * 7 + (i % 2) * 3, WATER_Y - (i % 3), frameKey('mallard', 'swim')).setOrigin(0.5, 1).setDepth(9).setFlipX(i % 3 === 0));
+          this.decoys.push(spriteImage(this, this.decoyX + i * 13 + (i % 2) * 5, WATER_Y - (i % 3), frameKey('mallard', 'swim')).setOrigin(0.5, 1).setDepth(9).setFlipX(i % 3 === 0));
         }
       }
       for (let i = 0; i < 2; i++) this.spawnFlock(Phaser.Math.Between(400, WORLD_W - 100), true);
     } else {
       for (let i = 0; i < 6; i++) this.spawnAnimal(Phaser.Math.Between(350, WORLD_W - 50));
     }
+    if (!this.area.lake) this.addPerches();
     if (this.state.hasDog) {
       const sprite = spriteImage(this, 120, GROUND_Y, frameKey('dog', 'idle')).setOrigin(0.5, 1).setDepth(19);
       this.dog = { sprite, x: 120, y: GROUND_Y, task: null, phase: 'follow', anim: 0 };
@@ -244,6 +258,50 @@ export class HuntScene extends Phaser.Scene {
   }
 
   // ---------- Setup ----------
+
+  /** A few songbirds on stumps along the trail: life at rest, until you get close. */
+  private addPerches(): void {
+    if (!this.textures.exists('stump')) {
+      const c = document.createElement('canvas');
+      c.width = 8;
+      c.height = 6;
+      const ctx = c.getContext('2d')!;
+      ctx.fillStyle = '#5a3f2c';
+      ctx.fillRect(0, 1, 8, 5);
+      ctx.fillStyle = '#c9a57a';
+      ctx.fillRect(0, 0, 8, 2);
+      ctx.fillStyle = '#3b2a20';
+      ctx.fillRect(6, 1, 2, 5);
+      this.textures.addCanvas('stump', c);
+    }
+    for (let i = 0; i < 4; i++) {
+      const x = Phaser.Math.Between(300, WORLD_W - 200);
+      spriteImage(this, x, GROUND_Y + 1, 'stump').setOrigin(0.5, 1).setDepth(14);
+      const bird = this.add.image(x, GROUND_Y - 5, 'bird-up').setOrigin(0.5, 1).setDepth(15).setFlipX(Math.random() < 0.5);
+      this.perched.push({ bird, x, y: GROUND_Y - 5, flying: false, t: Math.random() * 10, dir: 1 });
+    }
+  }
+
+  private updatePerches(dt: number): void {
+    for (const b of this.perched) {
+      b.t += dt;
+      if (!b.flying) {
+        // A hop now and then, and a flush when the hunter comes within a few yards.
+        b.bird.y = b.y - (Math.sin(b.t * 6) > 0.92 ? 1 : 0);
+        if (Math.abs(this.player.x - b.x) < 70 && this.movement !== 'still') {
+          b.flying = true;
+          b.dir = this.player.x < b.x ? 1 : -1;
+          b.bird.setFlipX(b.dir === -1);
+        }
+        continue;
+      }
+      b.x += b.dir * 70 * dt;
+      b.y -= 50 * dt;
+      b.bird.setPosition(Math.round(b.x), Math.round(b.y)).setTexture(Math.sin(b.t * 20) > 0 ? 'bird-up' : 'bird-down');
+      b.bird.setTint(this.backdrop.light);
+      if (b.y < -20) b.bird.setVisible(false);
+    }
+  }
 
   private playerKey(frame: string): string {
     return frameKey(has(this.state, 'orange-vest') ? 'orange' : 'hunter', frame);
@@ -265,7 +323,7 @@ export class HuntScene extends Phaser.Scene {
     kb.on('keydown-ESC', () => this.endHunt('You head back to camp.'));
 
     this.input.on('pointerdown', (p: Phaser.Input.Pointer) => {
-      // On a touchscreen: touch and hold the scene to aim, let go to shoot.
+      // On a touchscreen: touch and hold the scene to aim, let go to shoot. A quick tap walks there instead.
       if (p.wasTouch) return this.startTouchAim();
       if (p.rightButtonDown()) this.setAiming(!this.aiming);
       else if (this.aiming) this.fire();
@@ -275,25 +333,43 @@ export class HuntScene extends Phaser.Scene {
     this.input.on('pointerupoutside', release);
   }
 
+  private lowerTouchAim(): void {
+    if (!this.touchAim) return;
+    this.touchAim = false;
+    this.setAiming(false);
+  }
+
   private startTouchAim(): void {
     if (this.ended) return;
-    if (!this.weapon()) return note("You aren't carrying a weapon. Buy one at the outfitter, then pick it in the journal.");
+    this.walkTo = null;
+    if (!this.weapon()) return;
     this.touchAim = true;
     this.setAiming(true);
   }
 
-  /** Letting go shoots, but only at an animal: releasing over empty ground just lowers the weapon. */
+  /**
+   * Letting go: a held finger shoots, but only at an animal (over empty ground it just
+   * lowers the weapon). A tap walks there, a second tap runs, a swipe down crouches.
+   */
   private endTouchAim(p: Phaser.Input.Pointer): void {
-    if (!this.touchAim) return;
-    // Use the touch's own timestamps, so a slow frame can't turn a tap into a hold.
-    const held = p.upTime - p.downTime >= TOUCH_MIN_HOLD_MS;
-    const pt = this.reticlePoint();
-    const onAnimal = this.animals.some((a) => a.mode !== 'down' && a.mode !== 'fall' && a.sprite.getBounds().contains(pt.x, pt.y));
-    // Fire while the touch is still "held", so the shot uses the crosshair the player saw.
-    if (held && onAnimal) this.fire();
-    else if (held) note('No animal under the crosshair, so you hold your fire.');
-    this.touchAim = false;
-    this.setAiming(false);
+    if (this.ended) return;
+    const g = this.gestures.classify(p);
+    if (g === 'hold') {
+      // Fire while the touch still counts as held, so the shot uses the crosshair the player saw.
+      if (this.touchAim) {
+        const pt = this.reticlePoint();
+        const onAnimal = this.animals.some((a) => a.mode !== 'down' && a.mode !== 'fall' && a.sprite.getBounds().contains(pt.x, pt.y));
+        if (onAnimal) this.fire();
+        else note('No animal under the crosshair, so you hold your fire.');
+      }
+      this.lowerTouchAim();
+      return;
+    }
+    this.lowerTouchAim();
+    if (g === 'swipe-down') return this.toggleCrouch();
+    if (this.inStand || this.glassing) return;
+    const x = this.cams.world.getWorldPoint(p.upX, p.upY).x;
+    this.walkTo = { x: Phaser.Math.Clamp(x, 16, WORLD_W - 16), run: g === 'double-tap' };
   }
 
   private startOfHuntChecks(): void {
@@ -340,6 +416,7 @@ export class HuntScene extends Phaser.Scene {
     this.updateAnimals(dt);
     this.updateDog(dt);
     this.updateSpawns(dt);
+    this.updatePerches(dt);
     this.viewLeft = this.cams.follow(this.player.x, WORLD_W);
     this.backdrop.update(this.hour, this.viewLeft, dt, this.windDir);
     this.applyLight();
@@ -356,10 +433,17 @@ export class HuntScene extends Phaser.Scene {
     const canMove = !this.aiming && !this.inStand && !this.glassing;
     let dir = 0;
     if (canMove && left !== right) dir = left ? -1 : 1;
+    // Walking to a tapped spot, unless the keys or a stance change take over.
+    if (dir !== 0 || !canMove) this.walkTo = null;
+    const w = this.walkTo;
+    if (w) {
+      if (Math.abs(w.x - this.player.x) < 2) this.walkTo = null;
+      else dir = w.x > this.player.x ? 1 : -1;
+    }
 
     if (dir === 0) this.movement = 'still';
     else if (this.crouched) this.movement = 'sneak';
-    else if (k.SHIFT.isDown || pad.run) this.movement = 'run';
+    else if (k.SHIFT.isDown || pad.run || w?.run) this.movement = 'run';
     else this.movement = 'walk';
 
     if (dir !== 0) {
@@ -453,7 +537,7 @@ export class HuntScene extends Phaser.Scene {
     s.setFlipX(a.dir === -1);
     // Small game hops; deer bound when running.
     const hops = SMALL_GAME.includes(a.def.id) || a.mode === 'flee';
-    const hop = moving && hops ? Math.round(Math.abs(Math.sin(a.anim * Math.PI * 0.5)) * (a.mode === 'flee' ? 3 : 1)) : 0;
+    const hop = moving && hops ? Math.round(Math.abs(Math.sin(a.anim * Math.PI * 0.5)) * (a.mode === 'flee' ? 5 : 2)) : 0;
     s.setPosition(Math.round(a.x), GROUND_Y - hop);
 
     const far = distYards > CLEAR_SIGHT_YARDS && !this.glassing;
@@ -510,8 +594,8 @@ export class HuntScene extends Phaser.Scene {
     else if (Math.random() < 0.25) landX = this.viewLeft + 60 + Math.random() * (VIEW_W - 120);
     for (let i = 0; i < n; i++) {
       const dir: 1 | -1 = onWater ? (Math.random() < 0.5 ? 1 : -1) : fromLeft ? 1 : -1;
-      const a = this.addAnimal(def, startX - dir * i * 8, onWater ? WATER_Y - (i % 2) * 2 : height + (i % 2) * 4 + i, onWater ? 'swim' : 'fly', dir);
-      if (landX !== undefined) a.landX = landX + i * 7;
+      const a = this.addAnimal(def, startX - dir * i * 14, onWater ? WATER_Y - (i % 2) * 3 : height + (i % 2) * 6 + i * 2, onWater ? 'swim' : 'fly', dir);
+      if (landX !== undefined) a.landX = landX + i * 12;
     }
   }
 
@@ -523,7 +607,7 @@ export class HuntScene extends Phaser.Scene {
       a.x += a.dir * fly * 0.3 * dt;
       if (a.y >= WATER_Y) {
         a.mode = 'down';
-        const splash = this.add.rectangle(Math.round(a.x), WATER_Y - 0.5, 6, 0.5, 0xffffff, 0.7).setDepth(11);
+        const splash = this.add.rectangle(Math.round(a.x), WATER_Y - 1, 10, 1, 0xffffff, 0.7).setDepth(11);
         this.tweens.add({ targets: splash, alpha: 0, scaleX: 2, duration: 600, onComplete: () => splash.destroy() });
         if (!this.dog && !has(this.state, 'waders')) this.teachOnce('retrieve', true);
       }
@@ -613,7 +697,7 @@ export class HuntScene extends Phaser.Scene {
         note('🐕 Biscuit leaps into the water!');
       }
     }
-    let targetX = this.player.x - this.facing * 9;
+    let targetX = this.player.x - this.facing * 16;
     let targetY = GROUND_Y;
     if (d.phase === 'out' && d.task) {
       targetX = d.task.x;
@@ -624,9 +708,9 @@ export class HuntScene extends Phaser.Scene {
       }
     } else if (d.phase === 'back' && d.task) {
       targetY = GROUND_Y;
-      targetX = d.y < GROUND_Y - 1 ? d.x : this.player.x - this.facing * 6;
-      d.task.x = d.x + (d.sprite.flipX ? -4 : 4);
-      d.task.y = d.y - 3;
+      targetX = d.y < GROUND_Y - 1 ? d.x : this.player.x - this.facing * 10;
+      d.task.x = d.x + (d.sprite.flipX ? -8 : 8);
+      d.task.y = d.y - 6;
       d.task.sprite.setPosition(Math.round(d.task.x), Math.round(d.task.y));
       if (Math.abs(d.x - targetX) < 4 && d.y >= GROUND_Y - 1) {
         this.collectDuck(d.task, '🐕 Biscuit drops the duck at your feet. Good dog!');
@@ -726,8 +810,7 @@ export class HuntScene extends Phaser.Scene {
     const world = this.cams.world.getWorldPoint(p.x, p.y);
     const w = this.weapon()?.weapon;
     if (!w) return world;
-    // Sway is tuned in sprite pixels; sprites are 1/PX world units per pixel.
-    let sway = (w.sway / PX) * (this.crouched ? 0.7 : 1) * (this.inStand ? 0.6 : 1);
+    let sway = w.sway * (this.crouched ? 0.7 : 1) * (this.inStand ? 0.6 : 1);
     if (this.keys.SPACE.isDown || this.touchAim) sway *= this.breath > 0 ? 0.2 : 2;
     if (this.touchAim) world.y -= TOUCH_AIM_LIFT;
     const t = this.time.now / 1000;
@@ -764,10 +847,9 @@ export class HuntScene extends Phaser.Scene {
     this.shotEffects(pt, w.firearm, target);
 
     const s = target.sprite;
-    // Hit zones are in map (texture) pixels: PX of them per world unit.
-    let col = Math.floor((pt.x - (s.x - s.displayWidth / 2)) * PX);
-    const row = Math.floor((pt.y - (s.y - s.displayHeight)) * PX);
-    if (s.flipX) col = s.width - 1 - col;
+    let col = Math.floor(pt.x - (s.x - s.displayWidth / 2));
+    const row = Math.floor(pt.y - (s.y - s.displayHeight));
+    if (s.flipX) col = s.displayWidth - 1 - col;
     const result = resolveShot(target.def, w.kind, zoneAt(target.def, col, row));
 
     if (result.result === 'clean' && target.def.waterfowl) {
@@ -795,7 +877,7 @@ export class HuntScene extends Phaser.Scene {
 
   private shotEffects(pt: Phaser.Math.Vector2, firearm: boolean, target?: Animal): void {
     const tip = this.weaponTip();
-    const flash = this.add.rectangle(Math.round(tip.x), Math.round(tip.y), firearm ? 2 : 1, firearm ? 1.5 : 0.5, 0xfff1a8).setDepth(25);
+    const flash = this.add.rectangle(Math.round(tip.x), Math.round(tip.y), firearm ? 4 : 2, firearm ? 3 : 1, 0xfff1a8).setDepth(25);
     this.tweens.add({ targets: flash, alpha: 0, duration: 90, onComplete: () => flash.destroy() });
     const puff = this.add.rectangle(Math.round(pt.x), Math.round(pt.y), 2, 2, 0xffffff, 0.9).setDepth(26);
     this.tweens.add({ targets: puff, alpha: 0, duration: 250, onComplete: () => puff.destroy() });
@@ -903,13 +985,13 @@ export class HuntScene extends Phaser.Scene {
     if (!has(this.state, 'harness')) return this.teachOnce('harness', true);
     this.inStand = true;
     this.crouched = false;
-    const x = Math.round(this.player.x - this.facing * 4);
+    const x = Math.round(this.player.x - this.facing * 7);
     const g = this.standGfx;
     g.clear();
-    g.fillStyle(0x4a3424).fillRect(x - 3, 0, 6, GROUND_Y + 2);
-    g.fillStyle(0x614532).fillRect(x - 3, 0, 1, GROUND_Y + 2);
-    g.fillStyle(0x2b2b2b).fillRect(Math.round(this.player.x) - 5, GROUND_Y - STAND_HEIGHT, 10, 1);
-    g.fillStyle(0x3a3a3a).fillRect(Math.round(this.player.x) - 5, GROUND_Y - STAND_HEIGHT + 1, 0.5, 5);
+    g.fillStyle(0x4a3424).fillRect(x - 4, 0, 8, GROUND_Y + 2);
+    g.fillStyle(0x614532).fillRect(x - 4, 0, 2, GROUND_Y + 2);
+    g.fillStyle(0x2b2b2b).fillRect(Math.round(this.player.x) - 9, GROUND_Y - STAND_HEIGHT, 18, 2);
+    g.fillStyle(0x3a3a3a).fillRect(Math.round(this.player.x) - 9, GROUND_Y - STAND_HEIGHT + 2, 1, 8);
     this.teachOnce('tree-stand');
   }
 
@@ -970,7 +1052,7 @@ export class HuntScene extends Phaser.Scene {
     g.clear();
     const len = 160 * PX_PER_YARD * (this.scentSpray ? 0.45 : 1) * (this.inStand ? 0.5 : 1);
     const x = this.player.x;
-    const y = this.player.y - 8;
+    const y = this.player.y - 14;
     g.fillStyle(0xe8f0d8, 0.06);
     g.fillTriangle(x, y, x + this.windDir * len, y - 34, x + this.windDir * len, y + 24);
     const t = (this.time.now / 1000) % 1;
@@ -984,8 +1066,8 @@ export class HuntScene extends Phaser.Scene {
   /** Where the hunter's front hand is, in world pixels. */
   private hand(): Phaser.Math.Vector2 {
     const s = this.player;
-    const col = this.facing === 1 ? HAND.x : s.width - 1 - HAND.x;
-    return new Phaser.Math.Vector2(s.x - s.displayWidth / 2 + (col + 0.5) / PX, s.y - s.displayHeight + (HAND.y + 0.5) / PX);
+    const col = this.facing === 1 ? HAND.x : s.displayWidth - 1 - HAND.x;
+    return new Phaser.Math.Vector2(s.x - s.displayWidth / 2 + col, s.y - s.displayHeight + HAND.y);
   }
 
   /** The weapon's angle: pointed at the crosshair while aiming, carried muzzle up otherwise. */
@@ -1004,7 +1086,7 @@ export class HuntScene extends Phaser.Scene {
   private weaponTip(): Phaser.Math.Vector2 {
     const h = this.hand();
     const a = this.weaponAngle();
-    const len = (this.state.equippedWeapon === 'bow' ? 2 : 13) / PX;
+    const len = this.state.equippedWeapon === 'bow' ? 2 : 12;
     return new Phaser.Math.Vector2(h.x + Math.cos(a) * len * this.facing, h.y + Math.sin(a) * len);
   }
 
@@ -1023,18 +1105,16 @@ export class HuntScene extends Phaser.Scene {
     const a = this.weaponAngle();
     const dx = Math.cos(a) * this.facing;
     const dy = Math.sin(a);
-    // Distances are in sprite pixels, so the gun matches the hunter's size.
-    const at = (d: number, off = 0) => new Phaser.Math.Vector2(h.x + (dx * d - dy * off * this.facing) / PX, h.y + (dy * d + dx * off * this.facing) / PX);
-    const px = 1 / PX;
+    const at = (d: number, off = 0) => new Phaser.Math.Vector2(h.x + dx * d - dy * off * this.facing, h.y + dy * d + dx * off * this.facing);
     if (id === 'bow') {
       // A compound bow held upright, with cams top and bottom and the string drawn back.
       const top = at(0, -9);
       const bottom = at(0, 9);
       const curve = new Phaser.Curves.QuadraticBezier(top, at(4, 0), bottom);
-      g.lineStyle(2 * px, lit(0x3a3a42), 1);
+      g.lineStyle(2, lit(0x3a3a42), 1);
       curve.draw(g, 10);
-      g.fillStyle(lit(0x8a6a48), 1).fillRect(h.x - px, h.y - 2 * px, 2 * px, 4 * px);
-      g.lineStyle(px, lit(0xd8d8d0), 0.9);
+      g.fillStyle(lit(0x8a6a48), 1).fillRect(Math.round(h.x) - 1, Math.round(h.y) - 2, 2, 4);
+      g.lineStyle(1, lit(0xd8d8d0), 0.9);
       const pull = this.aiming ? -4 : 0;
       g.lineBetween(top.x, top.y, at(pull).x, at(pull).y).lineBetween(at(pull).x, at(pull).y, bottom.x, bottom.y);
       return;
@@ -1042,14 +1122,14 @@ export class HuntScene extends Phaser.Scene {
     const shotgun = id === 'shotgun-20';
     // Wooden stock tucked back under the arm, then the action and barrel.
     const stockEnd = at(-7, 1);
-    g.lineStyle(2 * px, lit(0x6a4024), 1).lineBetween(stockEnd.x, stockEnd.y, h.x, h.y);
-    g.lineStyle(px, lit(0xa06a3a), 1).lineBetween(at(-6, 0).x, at(-6, 0).y, h.x, h.y - 1);
+    g.lineStyle(2, lit(0x6a4024), 1).lineBetween(stockEnd.x, stockEnd.y, h.x, h.y);
+    g.lineStyle(1, lit(0xa06a3a), 1).lineBetween(at(-6, 0).x, at(-6, 0).y, h.x, h.y - 1);
     const barrelEnd = at(shotgun ? 12 : 13, -1);
-    g.lineStyle((shotgun ? 2 : 1) * px, lit(0x3a3a42), 1).lineBetween(at(1, -1).x, at(1, -1).y, barrelEnd.x, barrelEnd.y);
-    g.lineStyle(px, lit(0x8e8e9a), 1).lineBetween(at(2, -2).x, at(2, -2).y, at(6, -2).x, at(6, -2).y);
+    g.lineStyle(shotgun ? 2 : 1, lit(0x3a3a42), 1).lineBetween(at(1, -1).x, at(1, -1).y, barrelEnd.x, barrelEnd.y);
+    g.lineStyle(1, lit(0x8e8e9a), 1).lineBetween(at(2, -2).x, at(2, -2).y, at(6, -2).x, at(6, -2).y);
     if (id === 'rifle-308') {
       // Scope.
-      g.lineStyle(2 * px, lit(0x24242a), 1).lineBetween(at(1, -3).x, at(1, -3).y, at(7, -3).x, at(7, -3).y);
+      g.lineStyle(2, lit(0x24242a), 1).lineBetween(at(1, -3).x, at(1, -3).y, at(7, -3).x, at(7, -3).y);
     }
   }
 
@@ -1076,7 +1156,7 @@ export class HuntScene extends Phaser.Scene {
     const touch = isTouch();
     let hint = this.aiming
       ? touch ? 'Slide to put the crosshair on the animal · let go to shoot' : 'Click: shoot · hold Space: hold breath · F: lower'
-      : touch ? 'Touch and hold the scene to aim · let go to shoot' : 'A/D move · Shift run · S crouch · F aim · B glass · C call · T stand · Esc camp';
+      : touch ? (this.weapon() ? 'Tap to walk · hold to aim, let go to shoot · swipe down to crouch' : 'Tap to walk · tap twice to run · swipe down to crouch') : 'A/D move · Shift run · S crouch · F aim · B glass · C call · T stand · Esc camp';
     const duckDown = this.animals.some((a) => a.def.waterfowl && a.mode === 'down' && !a.carried);
     if (duckDown && this.dog) hint = 'Duck down! Biscuit is on it';
     else if (duckDown && this.animals.some((a) => a.def.waterfowl && a.mode === 'down' && this.near(a.x))) hint = has(this.state, 'waders') ? (touch ? 'Tap ✋ to wade out and retrieve' : 'Press E to wade out and retrieve') : 'You need waders or a dog to reach it';
