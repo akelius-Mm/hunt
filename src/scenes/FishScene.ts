@@ -42,7 +42,12 @@ const FISH_BOTTOM = GROUND_Y - 8;
 /** One false-cast rhythm, in seconds. Release when the loop straightens. */
 const LOOP_SECONDS = 1.1;
 const STRIKE_WINDOW = 1.2;
-const DRIFT_SECONDS = 9;
+/** A press during a drift must be held this long to recast, so a stray tap doesn't lose the drift. */
+const RECAST_HOLD_MS = 220;
+/** Trout this close to the fly swim over to look at it. */
+const CURIOUS_RANGE = 110;
+/** More bites on the relaxed river than the raw rule rates. */
+const BITE_BOOST = 1.6;
 const NO_NET_SLIP = 0.25;
 const TOUCH_ZOOM = 1.35;
 const FLY_ORDER = ['fly-adams', 'fly-caddis', 'fly-nymph', 'fly-streamer'];
@@ -102,6 +107,9 @@ export class FishScene extends Phaser.Scene {
   private reeling = false;
   private jumpTimer = 0;
   private castsWithoutStrike = 0;
+  /** When a press started during a drift (0 when none). */
+  private recastAt = 0;
+  private driftFromX = 0;
   private lastHatch: string | null = null;
   private taught = new Set<string>();
   private ended = false;
@@ -211,7 +219,12 @@ export class FishScene extends Phaser.Scene {
       this.reeling = true;
       return;
     }
-    if (this.phase === 'idle' || this.phase === 'drifting') {
+    if (this.phase === 'drifting') {
+      // Only a deliberate hold recasts; see updateLine.
+      this.recastAt = this.time.now;
+      return;
+    }
+    if (this.phase === 'idle') {
       const missing = cannotFish(this.state, this.fly);
       if (missing) return this.teachOnce(missing, true);
       const world = p ? this.cameras.main.getWorldPoint(p.x, p.y) : new Phaser.Math.Vector2(this.angler.x + this.facing * 80, LAKE_HORIZON + 30);
@@ -222,6 +235,7 @@ export class FishScene extends Phaser.Scene {
   }
 
   private release(): void {
+    this.recastAt = 0;
     if (this.phase === 'fighting') this.reeling = false;
     if (this.phase === 'loading') this.cast();
   }
@@ -263,6 +277,7 @@ export class FishScene extends Phaser.Scene {
   private landFly(): void {
     this.phase = 'drifting';
     this.phaseTime = 0;
+    this.driftFromX = this.flyPos.x;
     this.castsWithoutStrike++;
     this.addRing(this.flyPos.x, this.flyPos.y);
     if (this.quality < 0.25) {
@@ -379,13 +394,38 @@ export class FishScene extends Phaser.Scene {
     } else if (this.phase === 'flying') {
       if (this.phaseTime >= 0.35) this.landFly();
     } else if (this.phase === 'drifting') {
-      this.flyPos.x += CURRENT * dt;
-      if (this.phaseTime > DRIFT_SECONDS) this.phase = 'idle';
+      // Holding down during a drift recasts, once it's clearly a hold and not a tap.
+      const p = this.input.activePointer;
+      if (this.recastAt && (p.isDown || this.keys.SPACE.isDown) && this.time.now - this.recastAt > RECAST_HOLD_MS) {
+        this.recastAt = 0;
+        const w = p.isDown ? this.cameras.main.getWorldPoint(p.x, p.y) : new Phaser.Math.Vector2(this.angler.x + this.facing * 80, LAKE_HORIZON + 30);
+        this.phase = 'loading';
+        this.loadTime = 0;
+        this.aimAt(w.x, w.y);
+        return;
+      }
+      // The fly drifts downstream, slowing as the line tightens and swings it toward the bank.
+      // It stays out until you recast or it swings all the way in.
+      const drifted = this.flyPos.x - this.driftFromX;
+      this.flyPos.x += CURRENT * Math.max(0.15, 1 - drifted / 100) * dt;
+      this.flyPos.y = Math.min(GROUND_Y - 8, this.flyPos.y + 1.5 * dt);
+      const reach = CAST_RANGE + (has(this.state, 'waders') ? WADER_REACH : 0);
+      if (Math.abs(this.flyPos.x - this.angler.x) > reach + 30) {
+        this.phase = 'idle';
+        note('Your fly swung out of reach. Cast again.');
+      }
       if (this.fly) {
         const type = flyType(this.fly);
         for (const t of this.trout) {
-          if (t.spooked > 0 || Math.abs(t.x - this.flyPos.x) > 26 || Math.abs(t.y - this.flyPos.y) > 18) continue;
-          if (Math.random() < strikeRate(t.def, type, this.hour, this.quality) * dt) {
+          if (t.spooked > 0) continue;
+          // Curious trout swim over to inspect the fly.
+          const dx = this.flyPos.x - t.x;
+          if (Math.abs(dx) < CURIOUS_RANGE) {
+            t.homeX += Math.sign(dx) * Math.min(Math.abs(dx), 14 * dt);
+            t.y += Phaser.Math.Clamp(this.flyPos.y - t.y, -6 * dt, 6 * dt);
+          }
+          if (Math.abs(dx) > 26 || Math.abs(t.y - this.flyPos.y) > 18) continue;
+          if (Math.random() < strikeRate(t.def, type, this.hour, this.quality) * BITE_BOOST * dt) {
             this.hooked = t;
             this.phase = 'strike';
             this.phaseTime = 0;
@@ -397,9 +437,10 @@ export class FishScene extends Phaser.Scene {
       }
     } else if (this.phase === 'strike') {
       if (this.phaseTime > STRIKE_WINDOW) {
-        if (this.hooked) this.hooked.spooked = 10;
+        // Missed it, but the fly is still out there and the trout may come back.
+        if (this.hooked) this.hooked.spooked = 4;
         this.hooked = null;
-        this.phase = 'idle';
+        this.phase = 'drifting';
         this.teachOnce('set-hook', true);
       }
     } else if (this.phase === 'fighting' && this.hooked) {
@@ -614,7 +655,7 @@ export class FishScene extends Phaser.Scene {
       idle: touch ? 'Touch and hold the water where you want your fly' : 'Hold the mouse on the water where you want your fly',
       loading: 'Let go when the ring closes on the target',
       flying: '',
-      drifting: 'Watch your fly drift… tap to recast',
+      drifting: touch ? 'Let it drift. A trout will come look… hold to recast' : 'Let it drift. A trout will come look… hold to recast',
       strike: touch ? 'A take! Tap now!' : 'A take! Click or press Space!',
       fighting: this.hooked && running(this.fight, 0.6 + (this.hooked.def.maxIn / 24) * 0.6) ? "It's running! Let go and let it take line" : touch ? 'Hold anywhere to reel it in' : 'Hold the mouse or Space to reel it in',
       card: '',
