@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import { Backdrop } from '../art/backdrop';
 import { setupCameras, type SceneCameras } from '../art/cameras';
 import { createSprites, frameKey, HAND, spriteImage } from '../art/sprites';
-import { GROUND_Y, LAKE_HORIZON, PX, VIEW_W } from '../art/view';
+import { GROUND_Y, LAKE_HORIZON, VIEW_W } from '../art/view';
 import {
   cannotFish,
   cannotKeep,
@@ -25,9 +25,10 @@ import { FLIES, fish as fishDef } from '../data/fish';
 import { item } from '../data/items';
 import { note, teach } from '../ui/cards';
 import { clearHud, setHud } from '../ui/hud';
+import { Gestures } from '../ui/gestures';
 import { hideTouch, isTouch, pad, setTouchState, showTouch } from '../ui/touch';
 
-const WORLD_W = 1400;
+const WORLD_W = 1800;
 const START_HOUR = 5.8;
 const END_HOUR = 19.5;
 const DAY_SECONDS = 300;
@@ -50,8 +51,6 @@ const CURIOUS_RANGE = 110;
 /** More bites on the relaxed river than the raw rule rates. */
 const BITE_BOOST = 1.6;
 const NO_NET_SLIP = 0.25;
-/** Fly rod length in world units. */
-const ROD = 18;
 const FLY_ORDER = ['fly-adams', 'fly-caddis', 'fly-nymph', 'fly-streamer'];
 
 export interface FishSummary {
@@ -97,6 +96,9 @@ export class FishScene extends Phaser.Scene {
   private phase: Phase = 'idle';
   private facing: 1 | -1 = 1;
   private crouched = false;
+  private gestures = new Gestures();
+  /** Where a tap on the bank asked the angler to walk. */
+  private walkTo: { x: number; run: boolean } | null = null;
   private walkAnim = 0;
   private fly: string | null = null;
   private target = new Phaser.Math.Vector2();
@@ -170,7 +172,6 @@ export class FishScene extends Phaser.Scene {
       showTouch(
         {
           flybox: () => this.nextFly(),
-          crouch: () => (this.crouched = !this.crouched),
           act: () => {},
           glass: () => {},
           call: () => {},
@@ -192,7 +193,7 @@ export class FishScene extends Phaser.Scene {
     const roll = Math.random();
     const def = fishDef(roll < 0.5 ? 'rainbow' : roll < 0.8 ? 'brown' : 'brook');
     const y = FISH_TOP + Math.random() * (FISH_BOTTOM - FISH_TOP);
-    const shadow = this.add.ellipse(x, y, 9, 2.5, 0x0e1a1a, 0).setDepth(8);
+    const shadow = this.add.ellipse(x, y, 16, 4, 0x0e1a1a, 0).setDepth(8);
     this.trout.push({ def, x, y, homeX: x, dir: Math.random() < 0.5 ? 1 : -1, spooked: 0, nextRise: 3 + Math.random() * 8, shadow });
   }
 
@@ -203,11 +204,11 @@ export class FishScene extends Phaser.Scene {
     kb.on('keydown-Q', () => this.nextFly());
     kb.on('keydown-ESC', () => this.endDay('You head back to camp.'));
     kb.on('keydown-SPACE', () => this.press(null));
-    kb.on('keyup-SPACE', () => this.release());
+    kb.on('keyup-SPACE', () => this.release(null));
 
     this.input.on('pointerdown', (p: Phaser.Input.Pointer) => this.press(p));
-    this.input.on('pointerup', () => this.release());
-    this.input.on('pointerupoutside', () => this.release());
+    this.input.on('pointerup', (p: Phaser.Input.Pointer) => this.release(p));
+    this.input.on('pointerupoutside', (p: Phaser.Input.Pointer) => this.release(p));
   }
 
   // ---------- Controls ----------
@@ -226,6 +227,8 @@ export class FishScene extends Phaser.Scene {
       return;
     }
     if (this.phase === 'idle') {
+      if (p?.wasTouch) this.walkTo = null;
+      if (p?.wasTouch && this.cams.world.getWorldPoint(p.x, p.y).y > GROUND_Y - 6) return;
       const missing = cannotFish(this.state, this.fly);
       if (missing) return this.teachOnce(missing, true);
       const world = p ? this.cams.world.getWorldPoint(p.x, p.y) : new Phaser.Math.Vector2(this.angler.x + this.facing * 80, LAKE_HORIZON + 30);
@@ -235,9 +238,21 @@ export class FishScene extends Phaser.Scene {
     }
   }
 
-  private release(): void {
+  private release(p: Phaser.Input.Pointer | null): void {
     this.recastAt = 0;
     if (this.phase === 'fighting') this.reeling = false;
+    // On a touchscreen a quick tap on the bank walks there, a swipe down crouches; only a held finger casts.
+    const g = p?.wasTouch ? this.gestures.classify(p) : 'hold';
+    if (g === 'swipe-down') {
+      if (this.phase === 'loading') this.phase = 'idle';
+      this.crouched = !this.crouched;
+      return;
+    }
+    if (g !== 'hold' && p && this.cams.world.getWorldPoint(p.upX, p.upY).y > GROUND_Y - 6) {
+      if (this.phase === 'loading') this.phase = 'idle';
+      this.walkTo = { x: Phaser.Math.Clamp(this.cams.world.getWorldPoint(p.upX, p.upY).x, 20, WORLD_W - 20), run: g === 'double-tap' };
+      return;
+    }
     if (this.phase === 'loading') this.cast();
   }
 
@@ -346,7 +361,13 @@ export class FishScene extends Phaser.Scene {
     const right = k.D.isDown || k.RIGHT.isDown || pad.right;
     let dir = 0;
     if (canWalk && left !== right) dir = left ? -1 : 1;
-    const speed = this.crouched ? 20 : k.SHIFT.isDown || pad.run ? 80 : 40;
+    if (dir !== 0 || !canWalk) this.walkTo = null;
+    const w = this.walkTo;
+    if (w) {
+      if (Math.abs(w.x - this.angler.x) < 2) this.walkTo = null;
+      else dir = w.x > this.angler.x ? 1 : -1;
+    }
+    const speed = this.crouched ? 20 : k.SHIFT.isDown || pad.run || w?.run ? 80 : 40;
     if (dir) {
       this.facing = dir as 1 | -1;
       this.angler.x = Phaser.Math.Clamp(this.angler.x + dir * speed * dt, 20, WORLD_W - 20);
@@ -453,8 +474,8 @@ export class FishScene extends Phaser.Scene {
       const result = stepFight(this.fight, holding, strength, dt);
       // The fish comes toward the bank as you gain line.
       const f = this.fight.progress / 100;
-      this.hooked.x = Phaser.Math.Linear(this.hookAt.x, this.angler.x + this.facing * 8, f) + Math.sin(this.time.now / 300) * 4 * (1 - f);
-      this.hooked.y = Phaser.Math.Linear(this.hookAt.y, GROUND_Y - 3, f);
+      this.hooked.x = Phaser.Math.Linear(this.hookAt.x, this.angler.x + this.facing * 14, f) + Math.sin(this.time.now / 300) * 6 * (1 - f);
+      this.hooked.y = Phaser.Math.Linear(this.hookAt.y, GROUND_Y - 6, f);
       this.jumpTimer -= dt;
       if (running(this.fight, strength) && this.jumpTimer <= 0) this.jumpTimer = 1.6;
       if (result === 'snapped') this.loseFish('tippet', true);
@@ -555,8 +576,8 @@ export class FishScene extends Phaser.Scene {
 
   private hand(): Phaser.Math.Vector2 {
     const s = this.angler;
-    const col = this.facing === 1 ? HAND.x : s.width - 1 - HAND.x;
-    return new Phaser.Math.Vector2(s.x - s.displayWidth / 2 + (col + 0.5) / PX, s.y - s.displayHeight + (HAND.y + 0.5) / PX);
+    const col = this.facing === 1 ? HAND.x : s.displayWidth - 1 - HAND.x;
+    return new Phaser.Math.Vector2(s.x - s.displayWidth / 2 + col, s.y - s.displayHeight + HAND.y);
   }
 
   private rodTip(): Phaser.Math.Vector2 {
@@ -564,7 +585,7 @@ export class FishScene extends Phaser.Scene {
     let angle = -0.9;
     if (this.phase === 'loading') angle = -0.9 - Math.sin(this.loopPhase() * Math.PI * 2) * 0.9;
     if (this.phase === 'fighting') angle = -1.2;
-    return new Phaser.Math.Vector2(h.x + Math.cos(angle) * ROD * this.facing, h.y + Math.sin(angle) * ROD);
+    return new Phaser.Math.Vector2(h.x + Math.cos(angle) * 34 * this.facing, h.y + Math.sin(angle) * 34);
   }
 
   private addRing(x: number, y: number): void {
@@ -580,17 +601,17 @@ export class FishScene extends Phaser.Scene {
 
     // Rise rings and splashes.
     for (const r of this.rings) {
-      const rad = 1.5 + r.age * 7;
-      g.lineStyle(0.5, 0xffffff, 0.6 * (1 - r.age / 1.6));
+      const rad = 2 + r.age * 9;
+      g.lineStyle(1, 0xffffff, 0.6 * (1 - r.age / 1.6));
       g.strokeEllipse(r.x, r.y, rad * 2, rad * 0.7);
     }
 
     // The rod: bent toward the fish while fighting.
-    g.lineStyle(0.5, Phaser.Display.Color.ValueToColor(0x3a2a1a).color, 1);
+    g.lineStyle(1, Phaser.Display.Color.ValueToColor(0x3a2a1a).color, 1);
     if (this.phase === 'fighting' && this.hooked) {
-      const bend = new Phaser.Math.Vector2(tip.x + this.facing * 3, tip.y + 6);
+      const bend = new Phaser.Math.Vector2(tip.x + this.facing * 6, tip.y + 10);
       new Phaser.Curves.QuadraticBezier(hand, tip, bend).draw(g, 12);
-      this.drawLine(bend, new Phaser.Math.Vector2(this.hooked.x, this.hooked.y - 2), 0, light);
+      this.drawLine(bend, new Phaser.Math.Vector2(this.hooked.x, this.hooked.y - 3), 0, light);
       // Jumps: the trout clears the water now and then.
       const jumping = this.jumpTimer > 0.8;
       const key = frameKey(`trout-${this.hooked.def.id}`, 'swim');
@@ -607,8 +628,8 @@ export class FishScene extends Phaser.Scene {
       this.drawLine(tip, end, -6, light);
       // Timing ring: release when it closes on the target.
       const r = 3 + Math.abs(this.loopPhase() - 0.5) * 34;
-      g.lineStyle(0.5, 0xffffff, 0.9).strokeCircle(this.target.x, this.target.y, r);
-      g.fillStyle(0xf2a65a, 1).fillRect(this.target.x - 1, this.target.y - 1, 2, 2);
+      g.lineStyle(1, 0xffffff, 0.9).strokeCircle(this.target.x, this.target.y, r);
+      g.fillStyle(0xf2a65a, 1).fillRect(this.target.x - 1, this.target.y - 1, 3, 3);
     } else if (this.phase === 'flying') {
       const f = Math.min(1, this.phaseTime / 0.35);
       const now = new Phaser.Math.Vector2(Phaser.Math.Linear(tip.x, this.flyPos.x, f), Phaser.Math.Linear(tip.y - 10, this.flyPos.y, f * f));
@@ -617,12 +638,12 @@ export class FishScene extends Phaser.Scene {
       this.drawLine(tip, this.flyPos, 10, light);
       const type = this.fly ? FLIES[this.fly] : 'mayfly';
       // Dry flies float; sunk flies show an orange strike indicator.
-      if (type === 'nymph' || type === 'streamer') g.fillStyle(0xff7a1a, 1).fillRect(this.flyPos.x - 1, this.flyPos.y - 1.5, 2, 2);
+      if (type === 'nymph' || type === 'streamer') g.fillStyle(0xff7a1a, 1).fillRect(this.flyPos.x - 1, this.flyPos.y - 2, 3, 3);
       else {
-        g.fillStyle(0xf4f0e0, 1).fillRect(this.flyPos.x, this.flyPos.y - 2, 0.5, 1.5);
-        g.fillStyle(0x6a5a4a, 1).fillRect(this.flyPos.x - 1, this.flyPos.y - 0.5, 2, 0.5);
+        g.fillStyle(0xf4f0e0, 1).fillRect(this.flyPos.x, this.flyPos.y - 3, 1, 2);
+        g.fillStyle(0x6a5a4a, 1).fillRect(this.flyPos.x - 1, this.flyPos.y - 1, 3, 1);
       }
-      if (this.phase === 'strike') g.fillStyle(0xffffff, 0.9).fillRect(this.flyPos.x - 3, this.flyPos.y - 4, 6, 1);
+      if (this.phase === 'strike') g.fillStyle(0xffffff, 0.9).fillRect(this.flyPos.x - 4, this.flyPos.y - 6, 9, 2);
     }
   }
 
@@ -636,7 +657,7 @@ export class FishScene extends Phaser.Scene {
     this.jumpSprite ??= spriteImage(this, 0, 0, key).setDepth(21);
     const t = this.hooked;
     this.jumpSprite.setTexture(key).setVisible(true).setFlipX(t.x < this.angler.x);
-    this.jumpSprite.setPosition(Math.round(t.x), Math.round(t.y - (jumping ? 8 : 1))).setAngle(jumping ? (t.x < this.angler.x ? 20 : -20) : 0);
+    this.jumpSprite.setPosition(Math.round(t.x), Math.round(t.y - (jumping ? 14 : 2))).setAngle(jumping ? (t.x < this.angler.x ? 20 : -20) : 0);
     this.jumpSprite.setAlpha(jumping ? 1 : 0.55).setTint(this.backdrop.light);
   }
 
@@ -645,7 +666,7 @@ export class FishScene extends Phaser.Scene {
     const mid = new Phaser.Math.Vector2((a.x + b.x) / 2, (a.y + b.y) / 2 + sag);
     const c = Phaser.Display.Color.IntegerToColor(light);
     const color = Phaser.Display.Color.GetColor((240 * c.red) / 255, (214 * c.green) / 255, (120 * c.blue) / 255);
-    this.gfx.lineStyle(0.5, color, 1);
+    this.gfx.lineStyle(1, color, 1);
     new Phaser.Curves.QuadraticBezier(a, mid, b).draw(this.gfx, 16);
   }
 
@@ -654,7 +675,7 @@ export class FishScene extends Phaser.Scene {
     const flyName = this.fly ? `${item(this.fly).name.replace(/ \(.*\)/, '')} ×${count(this.state, this.fly)}` : 'No flies';
     const touch = isTouch();
     const hints: Record<Phase, string> = {
-      idle: touch ? 'Touch and hold the water where you want your fly' : 'Hold the mouse on the water where you want your fly',
+      idle: touch ? 'Hold on the water to cast · tap the bank to walk' : 'Hold the mouse on the water where you want your fly',
       loading: 'Let go when the ring closes on the target',
       flying: '',
       drifting: touch ? 'Let it drift. A trout will come look… hold to recast' : 'Let it drift. A trout will come look… hold to recast',
