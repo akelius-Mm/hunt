@@ -44,9 +44,9 @@ export function flyType(flyId: string): FlyType {
   return t;
 }
 
-/** Cast quality from how far off the rhythm the release was (0 = perfect, 0.5 = worst). */
+/** Cast quality from how far off the rhythm the release was (0 = perfect, 0.5 = worst). Forgiving near the sweet spot. */
 export function castQuality(timingError: number): number {
-  return Math.max(0, 1 - Math.abs(timingError) * 2.6);
+  return Math.max(0, 1 - Math.max(0, Math.abs(timingError) - 0.08) * 2.4);
 }
 
 /** Whether a caught trout may be kept, as a lesson id when it can't. */
@@ -62,7 +62,7 @@ export function troutLbs(lengthIn: number): number {
 }
 
 export interface FightState {
-  /** 0..100. Above 100 the tippet snaps. */
+  /** 0..100. The reel's drag holds it at DRAG. */
   tension: number;
   /** 0..100. At 100 the fish is at the net. */
   progress: number;
@@ -70,31 +70,55 @@ export interface FightState {
   slack: number;
   /** The fish's current pull, 0..1. */
   surge: number;
+  /** Seconds spent cranking against a hard run. Too long and the tippet snaps. */
+  strain: number;
 }
 
-export const TENSION_LOW = 22;
-export const TENSION_HIGH = 82;
+export const TENSION_LOW = 18;
+export const TENSION_HIGH = 85;
+/** The reel's drag: tension never goes above this. A hard pull takes line instead. */
+export const DRAG = 92;
+/** A pull this strong is a run: the fish is taking line. */
+export const RUN = 0.55;
+const SNAP_SECONDS = 2.5;
+const SLACK_SECONDS = 3.5;
+
+export function newFight(): FightState {
+  return { tension: 45, progress: 0, slack: 0, surge: 0.5, strain: 0 };
+}
+
+/** True while the fish is making a run: the time to stop reeling. */
+export function running(f: FightState, strength: number): boolean {
+  return f.surge * strength > RUN;
+}
 
 /**
- * One step of the fight. Reeling raises tension and brings the fish in; letting go
- * lets it run. The fish surges at random, so you have to watch the meter.
+ * One step of the fight. Holding to reel brings the fish in. When it pulls hard,
+ * the drag slips and it takes some line back, so the line only snaps if you keep
+ * cranking through a run for a few seconds. Letting go too long gives slack.
  */
 export function stepFight(f: FightState, reeling: boolean, strength: number, dt: number, rand: () => number = Math.random): 'on' | 'snapped' | 'thrown' | 'landed' {
-  if (rand() < dt * 0.6) f.surge = 0.4 + rand() * 0.6;
-  f.surge = Math.max(0, f.surge - dt * 0.35);
+  if (rand() < dt * 0.5) f.surge = 0.3 + rand() * 0.7;
+  f.surge = Math.max(0, f.surge - dt * 0.4);
   const pull = f.surge * strength;
   if (reeling) {
-    f.tension += (30 + pull * 70) * dt;
-    f.progress += (16 - pull * 12) * dt;
+    f.tension += (28 + pull * 50) * dt;
+    f.progress += (14 - pull * 10) * dt;
   } else {
-    f.tension -= (38 - pull * 30) * dt;
-    f.progress -= pull * 10 * dt;
+    f.tension -= (30 - pull * 22) * dt;
+    f.progress -= pull * 6 * dt;
+  }
+  if (f.tension > DRAG) {
+    // Drag slips: the fish takes line instead of breaking it.
+    f.tension = DRAG;
+    f.progress -= pull * 8 * dt;
   }
   f.tension = Math.max(0, f.tension);
   f.progress = Math.max(0, Math.min(100, f.progress));
+  f.strain = reeling && pull > RUN && f.tension >= DRAG ? f.strain + dt : Math.max(0, f.strain - dt);
   f.slack = f.tension < TENSION_LOW ? f.slack + dt : 0;
-  if (f.tension > 100) return 'snapped';
-  if (f.slack > 2.2) return 'thrown';
+  if (f.strain > SNAP_SECONDS) return 'snapped';
+  if (f.slack > SLACK_SECONDS) return 'thrown';
   if (f.progress >= 100) return 'landed';
   return 'on';
 }

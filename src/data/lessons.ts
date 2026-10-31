@@ -44,7 +44,7 @@ export const LESSONS: Lesson[] = [
   { id: 'subsurface', title: 'Most food is underwater', text: 'When nothing is rising, trout are still eating nymphs along the bottom. A nymph catches fish all day.' },
   { id: 'splashy-cast', title: 'Soft casts', text: 'That cast slapped the water and spooked nearby trout. Wait for the loop: release on the rhythm so the fly lands softly.' },
   { id: 'set-hook', title: 'Set the hook', text: 'When a trout takes the fly, lift the rod right away. Wait too long and it spits the fly out.' },
-  { id: 'tippet', title: 'Too much pressure', text: 'The thin tippet at the end of the line snapped, and the fly went with the fish. Let the fish run when it pulls hard.' },
+  { id: 'tippet', title: 'Too much pressure', text: 'The thin tippet snapped, and the fly went with the fish. When it jumps and runs, let go and let it take line. Then reel again.' },
   { id: 'slack', title: 'Keep tension', text: 'With slack in the line, the fish shook the hook loose. Keep steady pressure with the rod tip up.' },
   { id: 'net', title: 'Use a net', text: 'The trout slipped away at your feet. A landing net makes the last moment much safer, for you and the fish.' },
   { id: 'snag', title: 'Snagged', text: 'Your nymph caught on a rock and broke off. It happens to everyone. Nymphs ride near the bottom, so expect a few snags.' },

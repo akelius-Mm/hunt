@@ -8,6 +8,8 @@ import {
   castQuality,
   flyType,
   hatchAt,
+  newFight,
+  running,
   stepFight,
   strikeRate,
   TENSION_HIGH,
@@ -39,7 +41,7 @@ const FISH_TOP = LAKE_HORIZON + 20;
 const FISH_BOTTOM = GROUND_Y - 8;
 /** One false-cast rhythm, in seconds. Release when the loop straightens. */
 const LOOP_SECONDS = 1.1;
-const STRIKE_WINDOW = 0.8;
+const STRIKE_WINDOW = 1.2;
 const DRIFT_SECONDS = 9;
 const NO_NET_SLIP = 0.25;
 const TOUCH_ZOOM = 1.35;
@@ -95,7 +97,7 @@ export class FishScene extends Phaser.Scene {
   private phaseTime = 0;
   private quality = 1;
   private hooked: Trout | null = null;
-  private fight: FightState = { tension: 0, progress: 0, slack: 0, surge: 0 };
+  private fight: FightState = newFight();
   private hookAt = new Phaser.Math.Vector2();
   private reeling = false;
   private jumpTimer = 0;
@@ -263,7 +265,7 @@ export class FishScene extends Phaser.Scene {
     this.phaseTime = 0;
     this.castsWithoutStrike++;
     this.addRing(this.flyPos.x, this.flyPos.y);
-    if (this.quality < 0.35) {
+    if (this.quality < 0.25) {
       // A splashy cast scares every trout nearby.
       for (const t of this.trout) if (Math.abs(t.x - this.flyPos.x) < 50) t.spooked = 12;
       this.teachOnce('splashy-cast', true);
@@ -286,7 +288,7 @@ export class FishScene extends Phaser.Scene {
   private setHook(): void {
     if (!this.hooked) return;
     this.phase = 'fighting';
-    this.fight = { tension: 45, progress: 0, slack: 0, surge: 0.6 };
+    this.fight = newFight();
     this.hookAt.copy(this.flyPos);
     this.jumpTimer = 0.4;
     this.castsWithoutStrike = 0;
@@ -408,7 +410,7 @@ export class FishScene extends Phaser.Scene {
       this.hooked.x = Phaser.Math.Linear(this.hookAt.x, this.angler.x + this.facing * 14, f) + Math.sin(this.time.now / 300) * 6 * (1 - f);
       this.hooked.y = Phaser.Math.Linear(this.hookAt.y, GROUND_Y - 6, f);
       this.jumpTimer -= dt;
-      if (this.fight.surge > 0.8 && this.jumpTimer <= 0) this.jumpTimer = 1.6;
+      if (running(this.fight, strength) && this.jumpTimer <= 0) this.jumpTimer = 1.6;
       if (result === 'snapped') this.loseFish('tippet', true);
       else if (result === 'thrown') this.loseFish('slack', false);
       else if (result === 'landed') {
@@ -611,7 +613,7 @@ export class FishScene extends Phaser.Scene {
       flying: '',
       drifting: 'Watch your fly drift… tap to recast',
       strike: touch ? 'A take! Tap now!' : 'A take! Click or press Space!',
-      fighting: touch ? 'Hold to reel · let go when it runs · keep the needle in the green' : 'Hold to reel · let go when it runs · keep the needle in the green',
+      fighting: this.hooked && running(this.fight, 0.6 + (this.hooked.def.maxIn / 24) * 0.6) ? "It's running! Let go and let it take line" : touch ? 'Hold anywhere to reel it in' : 'Hold the mouse or Space to reel it in',
       card: '',
     };
     setHud({
