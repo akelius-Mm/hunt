@@ -17,6 +17,7 @@ import { ANIMALS, AREAS } from '../data/animals';
 import { ITEMS, item } from '../data/items';
 import { LESSONS, PASS_SCORE, QUIZ } from '../data/lessons';
 import { teach } from './cards';
+import { isTouch } from './touch';
 import { iconImg } from '../art/icons';
 import { drawStore } from '../art/storefront';
 
@@ -52,43 +53,37 @@ function on(root: HTMLElement, selector: string, fn: (target: HTMLElement) => vo
 
 export function showCamp(state: GameState, actions: CampActions): void {
   clearUi();
-  const weapon = state.equippedWeapon ? item(state.equippedWeapon).name : 'none';
-  const menu = el(`
-    <div class="camp-menu pix">
-      <h1>Base Camp</h1>
-      <div class="sub">Day ${state.day} · <span class="money">$${state.money}</span> · Carrying: ${weapon}</div>
-      <button class="primary" data-a="hunt">🌲 Go hunting</button>
-      <button data-a="shop">🏪 Trailhead Outfitters</button>
-      <button data-a="trader">🧺 ${TRADER_NAME}'s trading post</button>
-      <button data-a="journal">📓 Journal &amp; gear</button>
-      <button data-a="ed">🎓 Hunter education ${state.hunterEd ? '✓' : ''}</button>
-      <button data-a="freezer">❄️ Freezer &amp; donations</button>
-      <div class="hint">${nextStep(state)}</div>
-      <div class="hint"><a href="#" data-a="reset" style="color:var(--muted)">Start over</a></div>
+  const weapon = state.equippedWeapon ? item(state.equippedWeapon).name : 'No weapon';
+  const top = el(`
+    <div class="camp-top">
+      <div class="camp-title">Base Camp</div>
+      <div class="camp-stats">Day ${state.day} · <span class="money">$${state.money}</span> · ${weapon}</div>
+      <div class="camp-hint">${nextStep(state)}</div>
     </div>`);
+  const dock = el(`
+    <nav class="camp-dock" aria-label="Camp">
+      <button class="primary" data-a="hunt">Go hunting</button>
+      <button data-a="shop">Outfitters</button>
+      <button data-a="trader">Hollis</button>
+      <button data-a="journal">Journal</button>
+      <button data-a="ed">Hunter ed${state.hunterEd ? ' ✓' : ''}</button>
+      <button data-a="freezer">Freezer</button>
+    </nav>`);
   const refresh = () => {
     actions.save();
     showCamp(state, actions);
   };
-  on(menu, '[data-a]', (t) => {
+  on(dock, '[data-a]', (t) => {
     switch (t.dataset.a) {
       case 'hunt': return openAreaSelect(state, actions);
       case 'shop': return openShop(state, refresh);
       case 'trader': return openTrader(state, refresh);
-      case 'journal': return openJournal(state, refresh);
+      case 'journal': return openJournal(state, refresh, 'gear', actions.reset);
       case 'ed': return openHunterEd(state, refresh);
       case 'freezer': return openFreezer(state, refresh);
-      case 'reset':
-        // Browser confirm dialogs are blocked in embedded pages, so confirm in place.
-        if (t.dataset.armed) actions.reset();
-        else {
-          t.dataset.armed = '1';
-          t.textContent = 'Click again to delete your progress';
-          t.style.color = 'var(--bad)';
-        }
     }
   });
-  ui().append(menu);
+  ui().append(top, dock);
 }
 
 /** A gentle pointer to what a new hunter should do next. */
@@ -242,7 +237,8 @@ export function openShop(state: GameState, onClose: () => void, tab: string = 'l
     }
     if (d.item) {
       selected = d.item;
-      say = `"${item(d.item).tip}"`;
+      const tip = item(d.item).tip;
+      say = tip.startsWith('"') ? tip : `"${tip}"`;
     }
     if (d.buy) {
       buy(state, d.buy);
@@ -339,7 +335,7 @@ export function openTrader(state: GameState, onClose: () => void): void {
 
 // ---------- Journal ----------
 
-export function openJournal(state: GameState, onClose: () => void, tab = 'gear'): void {
+export function openJournal(state: GameState, onClose: () => void, tab = 'gear', onReset?: () => void): void {
   const { root, body } = modal('Journal', state, onClose);
   const render = () => {
     tabs(root, [['gear', 'Gear'], ['guide', 'Field guide'], ['lessons', `Lessons ${state.lessons.length}/${LESSONS.length}`], ['log', 'Harvest log']], tab, (t) => {
@@ -359,7 +355,10 @@ export function openJournal(state: GameState, onClose: () => void, tab = 'gear')
       }
       html += '<h3 style="margin-top:14px">Inventory</h3>';
       const inv = Object.entries(state.inventory);
-      html += inv.length ? inv.map(([id, q]) => `<span class="chip lesson">${item(id).name} ×${q}</span>`).join('') : '<p class="owned">Empty.</p>';
+      html += inv.length
+        ? `<div class="inv">${inv.map(([id, q]) => `<span class="inv-item">${iconImg(id)}${item(id).name} ×${q}</span>`).join('')}</div>`
+        : '<p class="owned">Empty.</p>';
+      if (onReset) html += '<p><button class="link" data-reset>Start a new game</button></p>';
     } else if (tab === 'guide') {
       for (const a of ANIMALS) {
         const seen = state.seenAnimals.includes(a.id);
@@ -386,6 +385,13 @@ export function openJournal(state: GameState, onClose: () => void, tab = 'gear')
   on(body, '[data-equip]', (t) => {
     state.equippedWeapon = t.dataset.equip!;
     render();
+  });
+  on(body, '[data-reset]', (t) => {
+    // Browser confirm dialogs are blocked in embedded pages, so confirm in place.
+    if (t.dataset.armed) return onReset?.();
+    t.dataset.armed = '1';
+    t.textContent = 'Tap again to delete your progress';
+    t.classList.add('danger');
   });
   render();
 }
@@ -467,14 +473,18 @@ function openAreaSelect(state: GameState, actions: CampActions): void {
      · Gear: ${['knife', 'orange-vest', 'binoculars', 'scent-spray', 'grunt-call', 'box-call', 'tree-stand', 'duck-stamp', 'waders', 'decoys', 'duck-call'].filter((g) => has(state, g)).map((g) => item(g).name).join(', ') || 'none'}</p>
     ${AREAS.map((a) => `<div class="row"><div><div class="name">${a.name}</div><div class="summary">${a.description}</div>
       ${a.orangeRequired ? '<div class="reason">Firearm deer season: blaze orange required with a firearm.</div>' : ''}</div>
-      <div></div><div><button class="primary" data-area="${a.id}">Hunt here</button></div></div>`).join('')}
+      <div></div><div><button data-area="${a.id}">Hunt here</button></div></div>`).join('')}
     <h3 style="margin-top:14px">Controls</h3>
-    <ul class="facts">
+    ${isTouch() ? `<ul class="facts">
+      <li><b>◀ ▶</b> walk · <b>Run</b> and <b>Crouch</b> switch on and off</li>
+      <li><b>Touch and hold</b> the scene to aim, slide onto the animal, <b>let go</b> to shoot</li>
+      <li><b>✋</b> appears when there's something to tag or pick up · <b>⛺</b> heads back to camp</li>
+    </ul>` : `<ul class="facts">
       <li><b>A / D</b> or arrows: walk · <b>hold Shift</b>: run (loud) · <b>S</b>: crouch and sneak</li>
       <li><b>Right-click</b> or <b>F</b>: raise your weapon · <b>hold Space</b>: hold your breath to steady · <b>Left-click</b>: shoot</li>
       <li><b>E</b>: tag and field dress / pick up · <b>B</b>: binoculars · <b>C</b>: use a call · <b>T</b>: tree stand · <b>Q</b>: switch weapon</li>
       <li><b>Esc</b>: head back to camp (ends the day)</li>
-    </ul>`;
+    </ul>`}`;
   on(body, '[data-area]', (t) => {
     root.remove();
     actions.hunt(t.dataset.area!);

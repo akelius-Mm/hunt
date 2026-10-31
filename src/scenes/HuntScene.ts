@@ -1013,7 +1013,7 @@ export class HuntScene extends Phaser.Scene {
       wind: this.windDir,
       weapon: w ? `${w.name} · ${ammo}` : 'No weapon',
       tags: tags.join(' · '),
-      stance: `${this.inStand ? 'Tree stand' : this.crouched ? 'Crouched' : 'Standing'} · ${this.movement}${this.glassing ? ' · glassing' : ''}`,
+      stance: [this.inStand ? 'in tree stand' : '', this.glassing ? 'glassing' : ''].filter(Boolean).join(' · '),
       breath: this.aiming ? this.breath / BREATH_SECONDS : null,
       hint,
     });

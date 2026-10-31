@@ -30,10 +30,8 @@ let lastLabels = '';
 export function setHud(d: HudData): void {
   const html = `
     <div class="hud-box">
-      <div><b>${d.time}</b> <span class="${d.legal ? 'right' : 'wrong'}">${d.legal ? '● legal light' : '● no shooting'}</span></div>
-      <div>Wind <b>${d.wind === 1 ? '→→' : '←←'}</b> <span class="muted">scent drifts ${d.wind === 1 ? 'right' : 'left'}</span></div>
-      <div>${d.weapon}${d.tags ? ` <span class="muted">· ${d.tags}</span>` : ''}</div>
-      <div class="muted">${d.stance}</div>
+      <div><b>${d.time}</b> <span class="${d.legal ? 'right' : 'wrong'}">● ${d.legal ? 'legal light' : 'no shooting'}</span> <span class="muted">· wind ${d.wind === 1 ? '→' : '←'}</span></div>
+      <div class="muted">${d.weapon}${d.tags ? ` · ${d.tags}` : ''}${d.stance ? ` · ${d.stance}` : ''}</div>
     </div>
     ${d.breath !== null ? `<div class="breath"><div style="width:${Math.round(d.breath * 100)}%" class="${d.breath > 0.2 ? '' : 'low'}"></div></div>` : ''}
     <div class="hud-hint">${d.hint}</div>`;
