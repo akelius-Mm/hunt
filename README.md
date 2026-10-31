@@ -1,6 +1,6 @@
-# Hunt: Field & Lessons
+# Fish & Game
 
-A cozy 2D side-view hunting game that teaches real hunting basics as you play.
+A cozy 2D pixel-art hunting and fly fishing game that teaches real outdoor basics as you play.
 You learn by doing: buying the right gear, following the rules, reading the wind
 and placing a clean, ethical shot.
 

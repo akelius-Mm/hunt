@@ -1,7 +1,7 @@
 {
-  "name": "Field & Lessons",
-  "short_name": "Hunt",
-  "description": "A cozy pixel-art hunting game that teaches real hunting rules, gear and ethics.",
+  "name": "Fish & Game",
+  "short_name": "Fish & Game",
+  "description": "A cozy pixel-art hunting and fly fishing game that teaches real rules, gear and ethics.",
   "start_url": "./",
   "scope": "./",
   "display": "fullscreen",
