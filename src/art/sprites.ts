@@ -2,10 +2,10 @@ import Phaser from 'phaser';
 import { PX } from './view';
 
 /**
- * Sprites are designed as pixel maps in world units (one map pixel = one world unit).
- * Hit zones in src/data/animals.ts use these map coordinates. Textures are built at
- * screen resolution with Scale2x, which doubles a sprite while rounding its diagonal
- * edges, so sprites keep the same pixel size as the high-resolution scenery.
+ * Sprites are pixel maps drawn one texture pixel per screen pixel, the same pixel size as
+ * the scenery. In world units a sprite is its map size divided by PX (so a 30-pixel hunter
+ * stands 15 units tall), which keeps characters small in a wide landscape.
+ * Hit zones in src/data/animals.ts and HAND use map (texture) pixels.
  */
 
 type Palette = Record<string, string>;
@@ -379,12 +379,11 @@ export function scale2x(rows: string[], width: number): string[] {
   return out;
 }
 
-/** Draws a pixel map at screen resolution (Scale2x when PX is 2). */
+/** Draws a pixel map, one texture pixel per map pixel. */
 export function pixelCanvas(rows: string[], palette: Palette, width: number): HTMLCanvasElement {
-  const grid = PX === 2 ? scale2x(rows, width) : rows;
-  const w = width * PX;
+  const grid = rows;
   const canvas = document.createElement('canvas');
-  canvas.width = w;
+  canvas.width = width;
   canvas.height = grid.length;
   const ctx = canvas.getContext('2d')!;
   grid.forEach((row, y) => {
@@ -398,7 +397,7 @@ export function pixelCanvas(rows: string[], palette: Palette, width: number): HT
   return canvas;
 }
 
-/** An image of a sprite texture, sized in world units. */
+/** An image of a sprite texture, sized in world units (map pixels / PX). */
 export function spriteImage(scene: Phaser.Scene, x: number, y: number, key: string): Phaser.GameObjects.Image {
   return scene.add.image(x, y, key).setScale(1 / PX);
 }

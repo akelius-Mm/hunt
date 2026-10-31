@@ -1,8 +1,11 @@
 import Phaser from 'phaser';
 import { Backdrop } from '../art/backdrop';
 import { setupCameras } from '../art/cameras';
-import { createSprites, frameKey, scale2xCanvas, spriteImage } from '../art/sprites';
-import { GROUND_Y, VIEW_W } from '../art/view';
+import { createSprites, frameKey, spriteImage } from '../art/sprites';
+import { GROUND_Y, PX, VIEW_W } from '../art/view';
+
+/** Where the camp art's left edge sits in the world: the camp fills the right side of the view. */
+const CAMP_X = 210;
 
 /** Golden hour at camp: the coziest light of the day. */
 const CAMP_HOUR = 17.9;
@@ -93,6 +96,7 @@ export class CampScene extends Phaser.Scene {
   private camp!: Phaser.GameObjects.Image;
   private hunter!: Phaser.GameObjects.Image;
   private smoke: Phaser.GameObjects.Rectangle[] = [];
+  private smokeAt: [number, number] = [0, 0];
   private t = 0;
 
   init(): void {
@@ -109,8 +113,8 @@ export class CampScene extends Phaser.Scene {
     this.backdrop = new Backdrop(this, { scrolling: false });
     setupCameras(this, this.backdrop).follow(VIEW_W / 2, VIEW_W, 1);
     if (!this.textures.exists('camp')) {
-      // Drawn in world units, then Scale2x'd to screen resolution like the sprites.
-      this.textures.addCanvas('camp', scale2xCanvas(campCanvas()));
+      // Drawn one texture pixel per screen pixel, like the sprites.
+      this.textures.addCanvas('camp', campCanvas());
       const pal: Record<string, string> = { y: '#ffe08a', Y: '#ffc04a', O: '#ff8a2a', R: '#e0482a' };
       FLAMES.forEach((rows, i) => {
         const c = document.createElement('canvas');
@@ -118,23 +122,27 @@ export class CampScene extends Phaser.Scene {
         c.height = 7;
         const ctx = c.getContext('2d')!;
         rows.forEach((row, y) => [...row].forEach((ch, x) => pal[ch] && r(ctx, x, y, 1, 1, pal[ch])));
-        this.textures.addCanvas(`flame-${i}`, scale2xCanvas(c));
+        this.textures.addCanvas(`flame-${i}`, c);
       });
     }
-    this.camp = spriteImage(this, 0, 0, 'camp').setOrigin(0).setDepth(-40);
+    // The camp art is drawn in its own pixel space and shown at screen resolution,
+    // so it sits small in the landscape. m() maps its coordinates into the world.
+    this.camp = spriteImage(this, CAMP_X, GROUND_Y + 1, 'camp').setOrigin(0, 1).setDepth(-40);
+    const m = (x: number, y: number): [number, number] => [CAMP_X + x / PX, GROUND_Y - (GROUND_Y - y) / PX];
 
     // Warm window light and firelight are not darkened by the scene light.
     for (const wx of [304, 376]) {
-      this.add.rectangle(wx, GROUND_Y - 36, 20, 16, 0xffc86a).setOrigin(0).setDepth(-39);
-      this.add.rectangle(wx + 9, GROUND_Y - 36, 2, 16, 0x3b2618).setOrigin(0).setDepth(-39);
-      this.add.rectangle(wx, GROUND_Y - 29, 20, 2, 0x3b2618).setOrigin(0).setDepth(-39);
+      this.add.rectangle(...m(wx, GROUND_Y - 36), 20 / PX, 16 / PX, 0xffc86a).setOrigin(0).setDepth(-39);
+      this.add.rectangle(...m(wx + 9, GROUND_Y - 36), 2 / PX, 16 / PX, 0x3b2618).setOrigin(0).setDepth(-39);
+      this.add.rectangle(...m(wx, GROUND_Y - 29), 20 / PX, 2 / PX, 0x3b2618).setOrigin(0).setDepth(-39);
     }
-    this.glow = this.add.circle(252, GROUND_Y - 6, 40, 0xff9a40, 0.18).setDepth(-38).setBlendMode(Phaser.BlendModes.ADD);
-    this.flames = [248, 253, 257].map((x) => spriteImage(this, x, GROUND_Y - 4, 'flame-0').setOrigin(0.5, 1).setDepth(-37));
+    this.glow = this.add.circle(...m(252, GROUND_Y - 6), 40 / PX, 0xff9a40, 0.18).setDepth(-38).setBlendMode(Phaser.BlendModes.ADD);
+    this.flames = [248, 253, 257].map((x) => spriteImage(this, ...m(x, GROUND_Y - 4), 'flame-0').setOrigin(0.5, 1).setDepth(-37));
 
-    this.hunter = spriteImage(this, 224, GROUND_Y, frameKey('orange', 'idle')).setOrigin(0.5, 1).setDepth(-36);
+    this.hunter = spriteImage(this, ...m(224, GROUND_Y), frameKey('orange', 'idle')).setOrigin(0.5, 1).setDepth(-36);
+    this.smokeAt = m(384, GROUND_Y - 92);
     for (let i = 0; i < 8; i++) {
-      this.smoke.push(this.add.rectangle(384, GROUND_Y - 92 - i * 8, 3, 3, 0xd8d0c8, 0.5).setDepth(-41));
+      this.smoke.push(this.add.rectangle(this.smokeAt[0], this.smokeAt[1] - i * 4, 1.5, 1.5, 0xd8d0c8, 0.5).setDepth(-41));
     }
   }
 
@@ -148,9 +156,9 @@ export class CampScene extends Phaser.Scene {
     this.glow.setAlpha(0.15 + Math.sin(this.t * 13) * 0.03 + Math.sin(this.t * 7) * 0.03);
     this.smoke.forEach((s, i) => {
       const life = (this.t * 0.25 + i / this.smoke.length) % 1;
-      s.setPosition(Math.round(384 + Math.sin(life * 6 + i) * 3 + life * 14), Math.round(GROUND_Y - 92 - life * 70));
+      s.setPosition(this.smokeAt[0] + Math.sin(life * 6 + i) * 1.5 + life * 7, this.smokeAt[1] - life * 35);
       s.setAlpha(0.45 * (1 - life));
-      s.setSize(2 + Math.round(life * 4), 2 + Math.round(life * 4)).setOrigin(0.5);
+      s.setSize(1 + life * 2, 1 + life * 2).setOrigin(0.5);
     });
   }
 }

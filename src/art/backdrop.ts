@@ -60,30 +60,56 @@ const LARCH: TreeColors = ['#f6d670', '#e2ae44', '#b47e2c', '#8a5a20'];
 const ASPEN: TreeColors = ['#f8e48a', '#e8c450', '#c09a34', '#7a6a2a'];
 
 /**
- * A conifer drawn pixel by pixel in drooping tiers. Light falls from the left, so the
- * left edge is lit and the right side is in shadow; random specks give needle texture,
- * and each tier's tips droop and break up the outline.
+ * A conifer drawn as drooping tiers of branches. Each tier is a solid base color with
+ * short needle strokes angled along the branches: lit strokes on the upper left where
+ * light falls, dark strokes underneath, a shadow band below each tier and drooping
+ * needle tips along its edge. Strokes, not single-pixel noise, keep it reading as
+ * drawn pixel art.
  */
 function tree(ctx: Ctx, cx: number, base: number, h: number, maxHalf: number, col: TreeColors, rand: () => number): void {
   const [hi, mid, lo, dark] = col;
   const top = base - h;
   const tiers = Math.max(3, Math.round(h / (11 * P)));
+  const halfAt = (y: number) => {
+    const t = (y - top) / h;
+    const f = (t * tiers) % 1;
+    return Math.max(0.5, maxHalf * (0.16 + 0.84 * t) * (0.42 + 0.58 * f));
+  };
+  // 1. Silhouette: base color, shadow band at the bottom of each tier.
   for (let y = Math.round(top); y < base; y++) {
     const t = (y - top) / h;
     const f = (t * tiers) % 1;
-    const half = Math.max(0.5, maxHalf * (0.16 + 0.84 * t) * (0.42 + 0.58 * f) + (rand() < 0.35 ? rand() * 2 : 0));
-    const x0 = Math.round(cx - half);
-    const x1 = Math.round(cx + half);
-    for (let x = x0; x <= x1; x++) {
-      const side = (x - cx) / Math.max(1, half);
-      const r = rand();
-      let c = side < -0.4 ? hi : side > 0.25 ? lo : mid;
-      if (r < 0.14) c = dark;
-      else if (r < 0.24 && side < 0.2) c = hi;
-      // The bottom of each tier sits in its own shadow; ragged needle tips at the edges.
-      if (f > 0.82 && r < 0.65) c = lo;
-      if (Math.abs(side) > 0.85 && r < 0.3) continue;
-      rect(ctx, x, y, 1, 1, c);
+    const half = halfAt(y);
+    rect(ctx, cx - half, y, half * 2 + 1, 1, f > 0.78 ? lo : mid);
+    // The shaded right side.
+    if (half > 2) rect(ctx, cx + half * 0.35, y, half * 0.65 + 1, 1, f > 0.78 ? dark : lo);
+  }
+  // 2. Needle strokes along the branches.
+  const strokes = Math.round((h * maxHalf) / (P * P * 3.5));
+  for (let i = 0; i < strokes; i++) {
+    const y = top + rand() * h;
+    const half = halfAt(y);
+    const x = cx + (rand() * 2 - 1) * half * 0.9;
+    const side = (x - cx) / Math.max(1, half);
+    const f = (((y - top) / h) * tiers) % 1;
+    const len = Math.max(2, Math.round((2 + rand() * 4) * (P / 2) * Math.min(1, half / (4 * P))));
+    // Branches slope down and outward; strokes follow them.
+    const slope = side < 0 ? 0.45 : -0.45;
+    const color = f > 0.7 ? dark : side < -0.15 ? hi : side > 0.35 ? dark : rand() < 0.5 ? hi : lo;
+    for (let k = 0; k < len; k++) {
+      const sx = Math.round(x + (side < 0 ? -k : k));
+      const sy = Math.round(y + Math.abs(k * slope));
+      if (Math.abs(sx - cx) > halfAt(sy) || sy >= base) break;
+      rect(ctx, sx, sy, 1, 1, color);
+    }
+  }
+  // 3. Drooping needle tips along the lower edge of each tier.
+  for (let k = 1; k <= tiers; k++) {
+    const y = Math.round(top + (k / tiers) * h - 1);
+    const half = halfAt(y - 1);
+    for (let x = -half; x <= half; x += 2 + Math.round(rand() * 2)) {
+      const len = 1 + Math.round(rand() * P);
+      rect(ctx, cx + x, y, 1, len, x > half * 0.3 ? dark : lo);
     }
   }
   if (h > 30 * P) rect(ctx, cx - 1, base - Math.round(h * 0.1), 2, Math.round(h * 0.1), '#3a2a20');
@@ -247,10 +273,10 @@ function canopy(ctx: Ctx, cx: number, trunkW: number, leaf: () => number): void 
   clumps(55, 1.5, 3, -4, light, 48);
   clumps(30, 0.5, 1.2, -8, glint, 42);
   // Individual leaves: speckle inside and a ragged edge outside.
-  for (let k = 0; k < 600; k++) {
+  for (let k = 0; k < 220; k++) {
     const a = leaf() * Math.PI * 2;
     const d = Math.sqrt(leaf());
-    rect(ctx, cx + Math.cos(a) * 62 * P * d, (26 + Math.sin(a) * 30 * d) * P, leaf() < 0.5 ? 2 : 1, 1, [dark, mid, light, glint][Math.floor(leaf() * 4)]);
+    rect(ctx, cx + Math.cos(a) * 62 * P * d, (26 + Math.sin(a) * 30 * d) * P, 2, 2, [dark, mid, light, glint][Math.floor(leaf() * 4)]);
   }
   for (let k = 0; k < 160; k++) {
     const a = leaf() * Math.PI * 2;
@@ -300,9 +326,13 @@ function nearTrees(): HTMLCanvasElement {
           const reach = w / 2 + (20 - k * 2) * P;
           for (let i = -reach; i <= reach; i++) {
             const droop = Math.round((i * i) / (reach * 6));
+            const stroke = (i + k * 3) % 5;
             for (let yy = 0; yy < 5 * P; yy++) {
-              const r = bark();
-              rect(ctx, tx + dx + i, by + droop + yy, 1, 1, yy < 2 ? (r < 0.5 ? '#3e6250' : '#2c4d36') : r < 0.18 ? '#162a20' : r < 0.3 ? '#2c4d36' : '#1f3a2a');
+              let c = yy < 2 ? '#3e6250' : yy < 4 ? '#2c4d36' : yy > 5 * P - 3 ? '#162a20' : '#1f3a2a';
+              // Needle strokes: every few columns a lit or dark streak runs down the bough.
+              if (stroke === 0 && yy > 1 && yy < 6) c = '#3e6250';
+              if (stroke === 2 && yy > 4) c = '#162a20';
+              rect(ctx, tx + dx + i, by + droop + yy, 1, 1, c);
             }
           }
         }
