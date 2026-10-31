@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { Backdrop } from '../art/backdrop';
-import { createSprites, frameKey } from '../art/sprites';
+import { createSprites, frameKey, HAND } from '../art/sprites';
 import { GROUND_Y, LAKE_HORIZON, VIEW_W } from '../art/view';
 import {
   cannotFish,
@@ -554,7 +554,8 @@ export class FishScene extends Phaser.Scene {
 
   private hand(): Phaser.Math.Vector2 {
     const s = this.angler;
-    return new Phaser.Math.Vector2(s.x + this.facing * 4, s.y - s.height + 11);
+    const col = this.facing === 1 ? HAND.x : s.width - 1 - HAND.x;
+    return new Phaser.Math.Vector2(s.x - s.width / 2 + col, s.y - s.height + HAND.y);
   }
 
   private rodTip(): Phaser.Math.Vector2 {

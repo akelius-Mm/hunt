@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { Backdrop } from '../art/backdrop';
-import { createSprites, frameKey } from '../art/sprites';
+import { createSprites, frameKey, HAND } from '../art/sprites';
 import { GROUND_Y, VIEW_W, WATER_Y } from '../art/view';
 import {
   anyLoadedAmmo,
@@ -116,6 +116,7 @@ export class HuntScene extends Phaser.Scene {
   private standGfx!: Phaser.GameObjects.Graphics;
   private scentGfx!: Phaser.GameObjects.Graphics;
   private reticle!: Phaser.GameObjects.Graphics;
+  private weaponGfx!: Phaser.GameObjects.Graphics;
   private keys!: Record<string, Phaser.Input.Keyboard.Key>;
 
   private animals: Animal[] = [];
@@ -187,6 +188,7 @@ export class HuntScene extends Phaser.Scene {
     this.scentGfx = this.add.graphics().setDepth(5);
     this.standGfx = this.add.graphics().setDepth(18);
     this.reticle = this.add.graphics().setDepth(60);
+    this.weaponGfx = this.add.graphics().setDepth(21);
 
     this.player = this.add.image(150, GROUND_Y, this.playerKey('idle')).setOrigin(0.5, 1).setDepth(20);
     const cam = this.cameras.main;
@@ -343,6 +345,7 @@ export class HuntScene extends Phaser.Scene {
     this.backdrop.update(this.hour, this.cameras.main.scrollX, dt, this.windDir);
     this.applyLight();
     this.drawScent();
+    this.drawWeapon();
     this.drawReticle();
     this.updateHud();
   }
@@ -788,8 +791,8 @@ export class HuntScene extends Phaser.Scene {
   }
 
   private shotEffects(pt: Phaser.Math.Vector2, firearm: boolean, target?: Animal): void {
-    const muzzleY = this.player.y - (this.crouched ? 8 : 11);
-    const flash = this.add.rectangle(Math.round(this.player.x + this.facing * 10), muzzleY, firearm ? 4 : 2, firearm ? 3 : 1, 0xfff1a8).setDepth(25);
+    const tip = this.weaponTip();
+    const flash = this.add.rectangle(Math.round(tip.x), Math.round(tip.y), firearm ? 4 : 2, firearm ? 3 : 1, 0xfff1a8).setDepth(25);
     this.tweens.add({ targets: flash, alpha: 0, duration: 90, onComplete: () => flash.destroy() });
     const puff = this.add.rectangle(Math.round(pt.x), Math.round(pt.y), 2, 2, 0xffffff, 0.9).setDepth(26);
     this.tweens.add({ targets: puff, alpha: 0, duration: 250, onComplete: () => puff.destroy() });
@@ -973,6 +976,76 @@ export class HuntScene extends Phaser.Scene {
     for (let i = 0; i < 7; i++) {
       const f = (i / 7 + t) % 1;
       g.fillRect(Math.round(x + this.windDir * len * f), Math.round(y - 4 + Math.sin(f * 12 + i) * 14 * f), 1, 1);
+    }
+  }
+
+  /** Where the hunter's front hand is, in world pixels. */
+  private hand(): Phaser.Math.Vector2 {
+    const s = this.player;
+    const col = this.facing === 1 ? HAND.x : s.width - 1 - HAND.x;
+    return new Phaser.Math.Vector2(s.x - s.width / 2 + col, s.y - s.height + HAND.y);
+  }
+
+  /** The weapon's angle: pointed at the crosshair while aiming, carried muzzle up otherwise. */
+  private weaponAngle(): number {
+    if (this.aiming) {
+      const h = this.hand();
+      const p = this.reticlePoint();
+      let a = Math.atan2(p.y - h.y, (p.x - h.x) * this.facing);
+      a = Phaser.Math.Clamp(a, -1.1, 0.9);
+      return a;
+    }
+    // Carried muzzle up: the safe way to walk with a gun.
+    return -0.75;
+  }
+
+  private weaponTip(): Phaser.Math.Vector2 {
+    const h = this.hand();
+    const a = this.weaponAngle();
+    const len = this.state.equippedWeapon === 'bow' ? 2 : 12;
+    return new Phaser.Math.Vector2(h.x + Math.cos(a) * len * this.facing, h.y + Math.sin(a) * len);
+  }
+
+  /** The rifle, shotgun or bow in the hunter's hands, lit like the scene. */
+  private drawWeapon(): void {
+    const g = this.weaponGfx;
+    g.clear();
+    const id = this.state.equippedWeapon;
+    if (!id || this.ended) return;
+    const light = Phaser.Display.Color.IntegerToColor(this.backdrop.light);
+    const lit = (c: number) => {
+      const k = Phaser.Display.Color.IntegerToColor(c);
+      return Phaser.Display.Color.GetColor((k.red * light.red) / 255, (k.green * light.green) / 255, (k.blue * light.blue) / 255);
+    };
+    const h = this.hand();
+    const a = this.weaponAngle();
+    const dx = Math.cos(a) * this.facing;
+    const dy = Math.sin(a);
+    const at = (d: number, off = 0) => new Phaser.Math.Vector2(h.x + dx * d - dy * off * this.facing, h.y + dy * d + dx * off * this.facing);
+    if (id === 'bow') {
+      // A compound bow held upright, with cams top and bottom and the string drawn back.
+      const top = at(0, -9);
+      const bottom = at(0, 9);
+      const curve = new Phaser.Curves.QuadraticBezier(top, at(4, 0), bottom);
+      g.lineStyle(2, lit(0x3a3a42), 1);
+      curve.draw(g, 10);
+      g.fillStyle(lit(0x8a6a48), 1).fillRect(Math.round(h.x) - 1, Math.round(h.y) - 2, 2, 4);
+      g.lineStyle(1, lit(0xd8d8d0), 0.9);
+      const pull = this.aiming ? -4 : 0;
+      g.lineBetween(top.x, top.y, at(pull).x, at(pull).y).lineBetween(at(pull).x, at(pull).y, bottom.x, bottom.y);
+      return;
+    }
+    const shotgun = id === 'shotgun-20';
+    // Wooden stock tucked back under the arm, then the action and barrel.
+    const stockEnd = at(-7, 1);
+    g.lineStyle(2, lit(0x6a4024), 1).lineBetween(stockEnd.x, stockEnd.y, h.x, h.y);
+    g.lineStyle(1, lit(0xa06a3a), 1).lineBetween(at(-6, 0).x, at(-6, 0).y, h.x, h.y - 1);
+    const barrelEnd = at(shotgun ? 12 : 13, -1);
+    g.lineStyle(shotgun ? 2 : 1, lit(0x3a3a42), 1).lineBetween(at(1, -1).x, at(1, -1).y, barrelEnd.x, barrelEnd.y);
+    g.lineStyle(1, lit(0x8e8e9a), 1).lineBetween(at(2, -2).x, at(2, -2).y, at(6, -2).x, at(6, -2).y);
+    if (id === 'rifle-308') {
+      // Scope.
+      g.lineStyle(2, lit(0x24242a), 1).lineBetween(at(1, -3).x, at(1, -3).y, at(7, -3).x, at(7, -3).y);
     }
   }
 
