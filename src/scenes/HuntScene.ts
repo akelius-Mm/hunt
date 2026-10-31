@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { Backdrop } from '../art/backdrop';
-import { createSprites, frameKey, HAND } from '../art/sprites';
+import { setupCameras, type SceneCameras } from '../art/cameras';
+import { createSprites, frameKey, HAND, spriteImage } from '../art/sprites';
 import { GROUND_Y, VIEW_W, WATER_Y } from '../art/view';
 import {
   anyLoadedAmmo,
@@ -44,8 +45,6 @@ const SPEED: Record<Movement, number> = { still: 0, sneak: 22, walk: 46, run: 10
 const SMALL_GAME = ['rabbit', 'squirrel'];
 /** Phones zoom in so the hunter and animals are easier to see. */
 const TOUCH_ZOOM = 1.35;
-/** Zoom around a point low on the screen: crops sky, keeps the ground in view. */
-const TOUCH_ZOOM_ORIGIN_Y = 0.75;
 /** On a touchscreen the reticle sits this far above the finger (world pixels), so the finger doesn't hide the target. */
 const TOUCH_AIM_LIFT = 20;
 /** A shorter touch is treated as a tap, not an aimed shot. */
@@ -117,6 +116,9 @@ export class HuntScene extends Phaser.Scene {
   private scentGfx!: Phaser.GameObjects.Graphics;
   private reticle!: Phaser.GameObjects.Graphics;
   private weaponGfx!: Phaser.GameObjects.Graphics;
+  private cams!: SceneCameras;
+  /** Left edge of the view, in world units. */
+  private viewLeft = 0;
   private keys!: Record<string, Phaser.Input.Keyboard.Key>;
 
   private animals: Animal[] = [];
@@ -142,7 +144,6 @@ export class HuntScene extends Phaser.Scene {
   private dog: Dog | null = null;
   /** Touch aiming: a finger is held on the scene, and when it went down. */
   private touchAim = false;
-  private touchAimStart = 0;
   private decoys: Phaser.GameObjects.Image[] = [];
   private decoyX = 0;
   /** Ducks downed today count toward the bag limit, retrieved or not. */
@@ -185,17 +186,14 @@ export class HuntScene extends Phaser.Scene {
   create(): void {
     createSprites(this);
     this.backdrop = new Backdrop(this, { scrolling: true, lake: this.area.lake });
+    this.cams = setupCameras(this, this.backdrop, { touchZoom: isTouch() ? TOUCH_ZOOM : undefined });
+    this.viewLeft = 0;
     this.scentGfx = this.add.graphics().setDepth(5);
     this.standGfx = this.add.graphics().setDepth(18);
     this.reticle = this.add.graphics().setDepth(60);
     this.weaponGfx = this.add.graphics().setDepth(21);
 
-    this.player = this.add.image(150, GROUND_Y, this.playerKey('idle')).setOrigin(0.5, 1).setDepth(20);
-    const cam = this.cameras.main;
-    cam.setBounds(0, 0, WORLD_W, 270);
-    // The scenery layers are fixed to the screen, so the camera must never scroll vertically.
-    cam.startFollow(this.player, true, 0.1, 0);
-    if (isTouch()) cam.setOrigin(0.5, TOUCH_ZOOM_ORIGIN_Y).setZoom(TOUCH_ZOOM);
+    this.player = spriteImage(this, 150, GROUND_Y, this.playerKey('idle')).setOrigin(0.5, 1).setDepth(20);
 
     this.bindInput();
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
@@ -224,7 +222,7 @@ export class HuntScene extends Phaser.Scene {
       if (has(this.state, 'decoys')) {
         this.decoyX = 260;
         for (let i = 0; i < 7; i++) {
-          this.decoys.push(this.add.image(this.decoyX + i * 13 + (i % 2) * 5, WATER_Y - (i % 3), frameKey('mallard', 'swim')).setOrigin(0.5, 1).setDepth(9).setFlipX(i % 3 === 0));
+          this.decoys.push(spriteImage(this, this.decoyX + i * 13 + (i % 2) * 5, WATER_Y - (i % 3), frameKey('mallard', 'swim')).setOrigin(0.5, 1).setDepth(9).setFlipX(i % 3 === 0));
         }
       }
       for (let i = 0; i < 2; i++) this.spawnFlock(Phaser.Math.Between(400, WORLD_W - 100), true);
@@ -232,13 +230,13 @@ export class HuntScene extends Phaser.Scene {
       for (let i = 0; i < 6; i++) this.spawnAnimal(Phaser.Math.Between(350, WORLD_W - 50));
     }
     if (this.state.hasDog) {
-      const sprite = this.add.image(120, GROUND_Y, frameKey('dog', 'idle')).setOrigin(0.5, 1).setDepth(19);
+      const sprite = spriteImage(this, 120, GROUND_Y, frameKey('dog', 'idle')).setOrigin(0.5, 1).setDepth(19);
       this.dog = { sprite, x: 120, y: GROUND_Y, task: null, phase: 'follow', anim: 0 };
     }
     if (this.area.hasSheds) {
       for (let i = 0; i < 2; i++) {
         if (Math.random() < 0.6) {
-          this.sheds.push(this.add.image(Phaser.Math.Between(400, WORLD_W - 100), GROUND_Y + 1, frameKey('shed', 'idle')).setOrigin(0.5, 1).setDepth(15));
+          this.sheds.push(spriteImage(this, Phaser.Math.Between(400, WORLD_W - 100), GROUND_Y + 1, frameKey('shed', 'idle')).setOrigin(0.5, 1).setDepth(15));
         }
       }
     }
@@ -272,7 +270,7 @@ export class HuntScene extends Phaser.Scene {
       if (p.rightButtonDown()) this.setAiming(!this.aiming);
       else if (this.aiming) this.fire();
     });
-    const release = (p: Phaser.Input.Pointer) => p.wasTouch && this.endTouchAim();
+    const release = (p: Phaser.Input.Pointer) => p.wasTouch && this.endTouchAim(p);
     this.input.on('pointerup', release);
     this.input.on('pointerupoutside', release);
   }
@@ -281,14 +279,14 @@ export class HuntScene extends Phaser.Scene {
     if (this.ended) return;
     if (!this.weapon()) return note("You aren't carrying a weapon. Buy one at the outfitter, then pick it in the journal.");
     this.touchAim = true;
-    this.touchAimStart = this.time.now;
     this.setAiming(true);
   }
 
   /** Letting go shoots, but only at an animal: releasing over empty ground just lowers the weapon. */
-  private endTouchAim(): void {
+  private endTouchAim(p: Phaser.Input.Pointer): void {
     if (!this.touchAim) return;
-    const held = this.time.now - this.touchAimStart >= TOUCH_MIN_HOLD_MS;
+    // Use the touch's own timestamps, so a slow frame can't turn a tap into a hold.
+    const held = p.upTime - p.downTime >= TOUCH_MIN_HOLD_MS;
     const pt = this.reticlePoint();
     const onAnimal = this.animals.some((a) => a.mode !== 'down' && a.mode !== 'fall' && a.sprite.getBounds().contains(pt.x, pt.y));
     // Fire while the touch is still "held", so the shot uses the crosshair the player saw.
@@ -342,7 +340,8 @@ export class HuntScene extends Phaser.Scene {
     this.updateAnimals(dt);
     this.updateDog(dt);
     this.updateSpawns(dt);
-    this.backdrop.update(this.hour, this.cameras.main.scrollX, dt, this.windDir);
+    this.viewLeft = this.cams.follow(this.player.x, WORLD_W);
+    this.backdrop.update(this.hour, this.viewLeft, dt, this.windDir);
     this.applyLight();
     this.drawScent();
     this.drawWeapon();
@@ -459,7 +458,7 @@ export class HuntScene extends Phaser.Scene {
 
     const far = distYards > CLEAR_SIGHT_YARDS && !this.glassing;
     s.setAlpha(far ? 0.45 : 1);
-    a.icon.setPosition(Math.round(a.x), Math.round(s.y - s.height - 3));
+    a.icon.setPosition(Math.round(a.x), Math.round(s.y - s.displayHeight - 3));
     a.icon.setVisible(a.mode === 'flee' || a.mode === 'alert');
     a.icon.setTexture(frameKey('icon', a.mode === 'flee' ? 'flee' : 'alert'));
   }
@@ -486,14 +485,13 @@ export class HuntScene extends Phaser.Scene {
       return;
     }
     // Spawn just out of view so animals walk in rather than pop up.
-    const cam = this.cameras.main;
-    const side = Math.random() < 0.5 ? cam.scrollX - 60 : cam.scrollX + VIEW_W + 60;
+    const side = Math.random() < 0.5 ? this.viewLeft - 60 : this.viewLeft + VIEW_W + 60;
     this.spawnAnimal(Phaser.Math.Clamp(side, 30, WORLD_W - 30));
   }
 
   private addAnimal(def: AnimalDef, x: number, y: number, mode: Mode, dir: 1 | -1): Animal {
-    const sprite = this.add.image(x, y, frameKey(def.id, def.waterfowl ? 'swim' : 'idle')).setOrigin(0.5, 1).setDepth(10);
-    const icon = this.add.image(x, 0, frameKey('icon', 'alert')).setOrigin(0.5, 1).setDepth(30).setVisible(false);
+    const sprite = spriteImage(this, x, y, frameKey(def.id, def.waterfowl ? 'swim' : 'idle')).setOrigin(0.5, 1).setDepth(10);
+    const icon = spriteImage(this, x, 0, frameKey('icon', 'alert')).setOrigin(0.5, 1).setDepth(30).setVisible(false);
     const a: Animal = { def, sprite, icon, mode, dir, x, y, awareness: 0, timer: 15 + Math.random() * 25, anim: Math.random() * 4, drift: DRIFT_SECONDS };
     this.animals.push(a);
     return a;
@@ -503,14 +501,13 @@ export class HuntScene extends Phaser.Scene {
   private spawnFlock(x: number, onWater: boolean): void {
     const def = animalDef('mallard');
     const n = 2 + Math.floor(Math.random() * 4);
-    const cam = this.cameras.main;
     const fromLeft = Math.random() < 0.5;
-    const startX = onWater ? x : fromLeft ? cam.scrollX - 40 : cam.scrollX + VIEW_W + 40;
+    const startX = onWater ? x : fromLeft ? this.viewLeft - 40 : this.viewLeft + VIEW_W + 40;
     const height = 50 + Math.random() * 60;
     // Decoys pull flocks in. Without them, most just pass over.
     let landX: number | undefined;
     if (this.decoys.length && Math.random() < 0.7) landX = this.decoyX + 40 + (Math.random() - 0.5) * 60;
-    else if (Math.random() < 0.25) landX = cam.scrollX + 60 + Math.random() * (VIEW_W - 120);
+    else if (Math.random() < 0.25) landX = this.viewLeft + 60 + Math.random() * (VIEW_W - 120);
     for (let i = 0; i < n; i++) {
       const dir: 1 | -1 = onWater ? (Math.random() < 0.5 ? 1 : -1) : fromLeft ? 1 : -1;
       const a = this.addAnimal(def, startX - dir * i * 14, onWater ? WATER_Y - (i % 2) * 3 : height + (i % 2) * 6 + i * 2, onWater ? 'swim' : 'fly', dir);
@@ -600,7 +597,7 @@ export class HuntScene extends Phaser.Scene {
     s.setFlipX(a.dir === -1).setFlipY(a.mode === 'down');
     s.setPosition(Math.round(a.x), Math.round(a.y));
     s.setAlpha(distYards > CLEAR_SIGHT_YARDS && !this.glassing ? 0.5 : 1);
-    a.icon.setPosition(Math.round(a.x), Math.round(a.y - s.height - 3));
+    a.icon.setPosition(Math.round(a.x), Math.round(a.y - s.displayHeight - 3));
     a.icon.setVisible(a.mode === 'flee' && a.y > 60);
     a.icon.setTexture(frameKey('icon', 'flee'));
   }
@@ -722,7 +719,7 @@ export class HuntScene extends Phaser.Scene {
 
   private reticlePoint(): Phaser.Math.Vector2 {
     const p = this.input.activePointer;
-    const world = this.cameras.main.getWorldPoint(p.x, p.y);
+    const world = this.cams.world.getWorldPoint(p.x, p.y);
     const w = this.weapon()?.weapon;
     if (!w) return world;
     let sway = w.sway * (this.crouched ? 0.7 : 1) * (this.inStand ? 0.6 : 1);
@@ -762,9 +759,9 @@ export class HuntScene extends Phaser.Scene {
     this.shotEffects(pt, w.firearm, target);
 
     const s = target.sprite;
-    let col = Math.floor(pt.x - (s.x - s.width / 2));
-    const row = Math.floor(pt.y - (s.y - s.height));
-    if (s.flipX) col = s.width - 1 - col;
+    let col = Math.floor(pt.x - (s.x - s.displayWidth / 2));
+    const row = Math.floor(pt.y - (s.y - s.displayHeight));
+    if (s.flipX) col = s.displayWidth - 1 - col;
     const result = resolveShot(target.def, w.kind, zoneAt(target.def, col, row));
 
     if (result.result === 'clean' && target.def.waterfowl) {
@@ -796,7 +793,7 @@ export class HuntScene extends Phaser.Scene {
     this.tweens.add({ targets: flash, alpha: 0, duration: 90, onComplete: () => flash.destroy() });
     const puff = this.add.rectangle(Math.round(pt.x), Math.round(pt.y), 2, 2, 0xffffff, 0.9).setDepth(26);
     this.tweens.add({ targets: puff, alpha: 0, duration: 250, onComplete: () => puff.destroy() });
-    if (firearm) this.cameras.main.shake(120, 0.006);
+    if (firearm) this.cams.shake(120, 0.006);
 
     // Noise spooks animals nearby: a gunshot carries much farther than a bowstring.
     const range = (firearm ? 160 : 30) * PX_PER_YARD;
@@ -932,22 +929,21 @@ export class HuntScene extends Phaser.Scene {
     this.summary.newLessons = this.state.lessons.length - this.lessonsAtStart;
     clearHud();
     note(message);
-    this.cameras.main.fadeOut(600, 0, 0, 0);
-    this.cameras.main.once('camerafadeoutcomplete', () => this.onEnd(this.summary));
+    this.cams.fadeOut(600, () => this.onEnd(this.summary));
   }
 
   // ---------- Drawing ----------
 
   /** World position to screen position in game pixels, allowing for zoom. */
   private toScreen(x: number, y: number): { x: number; y: number } {
-    const c = this.cameras.main;
+    const c = this.cams.world;
     const ox = c.width * c.originX;
     const oy = c.height * c.originY;
     return { x: (x - c.scrollX - ox) * c.zoom + ox, y: (y - c.scrollY - oy) * c.zoom + oy };
   }
 
   private onScreen(x: number): boolean {
-    const cam = this.cameras.main;
+    const cam = this.cams.world;
     return x > cam.worldView.x && x < cam.worldView.right;
   }
 
@@ -982,8 +978,8 @@ export class HuntScene extends Phaser.Scene {
   /** Where the hunter's front hand is, in world pixels. */
   private hand(): Phaser.Math.Vector2 {
     const s = this.player;
-    const col = this.facing === 1 ? HAND.x : s.width - 1 - HAND.x;
-    return new Phaser.Math.Vector2(s.x - s.width / 2 + col, s.y - s.height + HAND.y);
+    const col = this.facing === 1 ? HAND.x : s.displayWidth - 1 - HAND.x;
+    return new Phaser.Math.Vector2(s.x - s.displayWidth / 2 + col, s.y - s.displayHeight + HAND.y);
   }
 
   /** The weapon's angle: pointed at the crosshair while aiming, carried muzzle up otherwise. */
@@ -1097,7 +1093,7 @@ export class HuntScene extends Phaser.Scene {
         if (a.mode === 'down' || a.mode === 'flee' || !this.onScreen(a.x)) continue;
         const d = Math.abs(a.x - this.player.x) / PX_PER_YARD;
         const check = checkShot(this.state, a.def, this.state.equippedWeapon, d, this.hour, a.def.waterfowl ? this.ducksDowned : 0);
-        const at = this.toScreen(a.x, a.sprite.y - a.sprite.height - 4);
+        const at = this.toScreen(a.x, a.sprite.y - a.sprite.displayHeight - 4);
         labels.push({
           x: at.x,
           y: at.y,
