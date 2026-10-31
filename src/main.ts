@@ -1,13 +1,11 @@
 import Phaser from 'phaser';
 import { nextDay } from './core/economy';
 import { clearSave, load, newGame, save } from './core/state';
-import { TRADER_NAME } from './core/trade';
-import { item } from './data/items';
 import { VIEW_H, VIEW_W } from './art/view';
 import { CampScene } from './scenes/CampScene';
 import { HuntScene, type HuntSummary } from './scenes/HuntScene';
 import { clearCards, teach } from './ui/cards';
-import { clearUi, showCamp, showSummary, type CampActions } from './ui/menus';
+import { clearUi, showCamp, showHaul, type CampActions } from './ui/menus';
 import './style.css';
 
 let state = load() ?? newGame();
@@ -49,19 +47,10 @@ function endHunt(s: HuntSummary): void {
   nextDay(state);
   save(state);
   goCamp();
-  const items = Object.entries(s.items).map(([id, q]) => `${item(id).name} ×${q}`);
-  showSummary(
-    [
-      `<b>${s.areaName}</b>`,
-      s.harvested.length ? `Harvested: ${s.harvested.join(', ')}` : 'No harvest today. Every hunt teaches something.',
-      items.length ? `Brought back: ${items.join(', ')}` : '',
-      s.meatLbs ? `Meat in the freezer: +${s.meatLbs} lbs` : '',
-      s.fines ? `<span class="wrong">Fines paid: $${s.fines}</span>` : '',
-      `New lessons: ${s.newLessons}`,
-      `It is now day ${state.day}. Shop prices have recovered a little, and ${TRADER_NAME} has new stock.`,
-    ].filter(Boolean),
-    () => showCamp(state, actions),
-  );
+  showHaul(state, s, () => {
+    save(state);
+    showCamp(state, actions);
+  });
 }
 
 goCamp();

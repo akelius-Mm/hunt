@@ -36,20 +36,6 @@ function ridgeNoise(rand: () => number, octaves: [number, number][]): (x: number
   return (x) => octaves.reduce((sum, [cycles, amp], i) => sum + Math.sin((x / VIEW_W) * Math.PI * 2 * cycles + phases[i]) * amp, 0);
 }
 
-function pine(ctx: Ctx, cx: number, base: number, h: number, maxHalf: number, color: string, shade: string, rand: () => number): void {
-  const top = base - h;
-  const tiers = Math.max(3, Math.round(h / 14));
-  for (let y = top; y < base; y++) {
-    const t = (y - top) / h;
-    const f = (t * tiers) % 1;
-    const half = Math.max(0.5, maxHalf * (0.2 + 0.8 * t) * (0.5 + 0.5 * f) + (rand() < 0.25 ? 1 : 0));
-    const x0 = Math.round(cx - half);
-    const x1 = Math.round(cx + half);
-    rect(ctx, x0, y, x1 - x0 + 1, 1, color);
-    if (shade !== color && x1 - cx > 1) rect(ctx, cx + 1, y, x1 - cx, 1, shade);
-  }
-}
-
 function disc(ctx: Ctx, cx: number, cy: number, r: number, color: string): void {
   ctx.fillStyle = color;
   for (let y = -r; y <= r; y++) {
@@ -58,18 +44,76 @@ function disc(ctx: Ctx, cx: number, cy: number, r: number, color: string): void 
   }
 }
 
-// ---------- Far layers: grayscale, tinted by the time-of-day grade ----------
+// ---------- Far layers: full-color golden autumn, veiled in haze by distance ----------
+
+/** Light, mid, shadow and speck colors for one kind of tree. */
+type TreeColors = [string, string, string, string];
+const PINE: TreeColors = ['#3e6250', '#2c4a3c', '#203a2e', '#162a22'];
+const LARCH: TreeColors = ['#f6d670', '#e2ae44', '#b47e2c', '#8a5a20'];
+const ASPEN: TreeColors = ['#f8e48a', '#e8c450', '#c09a34', '#7a6a2a'];
+
+/**
+ * A conifer drawn pixel by pixel in tiers. Light falls from the left, so the left edge
+ * is lit and the right side is in shadow, with random specks for needle texture.
+ */
+function tree(ctx: Ctx, cx: number, base: number, h: number, maxHalf: number, col: TreeColors, rand: () => number): void {
+  const [hi, mid, lo, dark] = col;
+  const top = base - h;
+  const tiers = Math.max(3, Math.round(h / 12));
+  for (let y = Math.round(top); y < base; y++) {
+    const t = (y - top) / h;
+    const f = (t * tiers) % 1;
+    const half = Math.max(0.5, maxHalf * (0.18 + 0.82 * t) * (0.45 + 0.55 * f) + (rand() < 0.3 ? 1 : 0));
+    const x0 = Math.round(cx - half);
+    const x1 = Math.round(cx + half);
+    for (let x = x0; x <= x1; x++) {
+      const side = (x - cx) / Math.max(1, half);
+      const r = rand();
+      let c = side < -0.35 ? hi : side > 0.3 ? lo : mid;
+      if (r < 0.12) c = dark;
+      else if (r < 0.2 && side < 0.3) c = hi;
+      // The bottom of each tier sits in its own shadow.
+      if (f > 0.85 && r < 0.6) c = lo;
+      rect(ctx, x, y, 1, 1, c);
+    }
+  }
+  if (h > 30) rect(ctx, cx, base - Math.round(h * 0.12), 1, Math.round(h * 0.12), '#3a2a20');
+}
+
+/** A rounded aspen or birch crown, built from clumps. */
+function crown(ctx: Ctx, cx: number, base: number, h: number, col: TreeColors, rand: () => number): void {
+  const [hi, mid, lo] = col;
+  rect(ctx, cx, base - h * 0.45, 1, h * 0.45, '#e8e2d6');
+  for (let k = 0; k < 7; k++) {
+    const x = cx + (rand() - 0.5) * h * 0.4;
+    const y = base - h * 0.55 - rand() * h * 0.3;
+    const r = Math.max(2, Math.round(h * (0.12 + rand() * 0.08)));
+    disc(ctx, x + 1, y + 1, r, lo);
+    disc(ctx, x, y, r, mid);
+    disc(ctx, x - r * 0.35, y - r * 0.35, Math.max(1, Math.round(r * 0.45)), hi);
+  }
+}
 
 function mountains(): HTMLCanvasElement {
   const [c, ctx] = makeCanvas(VIEW_W, 120);
   const rand = rng(11);
-  const back = ridgeNoise(rand, [[2, 18], [5, 9], [11, 4], [23, 2]]);
+  const back = ridgeNoise(rand, [[2, 20], [5, 10], [11, 4], [23, 2]]);
+  const front = ridgeNoise(rand, [[3, 12], [7, 6], [17, 2]]);
   for (let x = 0; x < VIEW_W; x++) {
-    const y = Math.round(40 + back(x));
-    const slope = back(x + 1) - back(x);
-    rect(ctx, x, y, 1, 120 - y, '#ffffff');
-    // Shade the slopes facing away from the light.
-    if (slope > 0) rect(ctx, x, y, 1, 3 + Math.round(slope * 6), '#e2e2e2');
+    // Back range: pale and snow-capped. Light comes from the left, so slopes falling to the right are shaded.
+    const y = Math.round(34 + back(x));
+    const shaded = back(x + 1) > back(x);
+    for (let yy = y; yy < 120; yy++) {
+      const snow = yy < y + 6 + Math.round(back(x * 3) * 0.3) && y < 40;
+      const c = snow ? (shaded ? '#c4c8e0' : '#f4f2f8') : shaded ? '#7c84ac' : '#97a0c4';
+      rect(ctx, x, yy, 1, 1, (yy + x) % 7 === 0 && !snow ? '#868fb6' : c);
+    }
+    // Front range: closer, darker, with rock streaks.
+    const y2 = Math.round(66 + front(x));
+    const shaded2 = front(x + 1) > front(x);
+    for (let yy = y2; yy < 120; yy++) rect(ctx, x, yy, 1, 1, shaded2 ? '#5e6890' : (yy * 3 + x) % 11 === 0 ? '#6a7498' : '#737ea4');
+    // Only the highest front peaks keep a little snow.
+    if (y2 < 58) rect(ctx, x, y2, 1, 2, '#e8e8f2');
   }
   return c;
 }
@@ -78,38 +122,83 @@ function ridge(): HTMLCanvasElement {
   const [c, ctx] = makeCanvas(VIEW_W, 90);
   const rand = rng(12);
   const hill = ridgeNoise(rand, [[3, 10], [7, 5], [13, 2]]);
-  for (let x = 0; x < VIEW_W; x++) rect(ctx, x, Math.round(46 + hill(x)), 1, 90, '#ffffff');
-  for (let i = 0; i < 90; i++) {
+  for (let x = 0; x < VIEW_W; x++) {
+    const y = Math.round(46 + hill(x));
+    for (let yy = y; yy < 90; yy++) rect(ctx, x, yy, 1, 1, rand() < 0.25 ? '#b8903a' : rand() < 0.5 ? '#3a564c' : '#46625a');
+  }
+  for (let i = 0; i < 110; i++) {
     const x = rand() * VIEW_W;
-    const base = Math.round(48 + hill(x));
+    const base = Math.round(49 + hill(x));
     const h = 6 + rand() * 10;
-    wrapped((dx) => pine(ctx, Math.round(x + dx), base, h, 2 + rand() * 2, '#ffffff', '#ffffff', rand));
+    const col = rand() < 0.45 ? LARCH : PINE;
+    wrapped((dx) => tree(ctx, Math.round(x + dx), base, h, 2 + rand() * 2, col, rng(i + 7)));
   }
   return c;
 }
 
-function forest(height: number, seed: number, count: number, minH: number, maxH: number, halfMul: number, shade: string): HTMLCanvasElement {
+/** A band of mixed forest: dark pines, golden larches and aspens. */
+function forest(height: number, seed: number, count: number, minH: number, maxH: number, halfMul: number, gold: number): HTMLCanvasElement {
   const [c, ctx] = makeCanvas(VIEW_W, height);
   const rand = rng(seed);
-  rect(ctx, 0, height - 18, VIEW_W, 18, '#ffffff');
+  for (let x = 0; x < VIEW_W; x++) {
+    for (let y = height - 18; y < height; y++) rect(ctx, x, y, 1, 1, rand() < gold * 0.6 ? '#c8962e' : rand() < 0.5 ? '#2a4236' : '#34503e');
+  }
+  const trees = Array.from({ length: count }, () => ({ x: Math.round(rand() * VIEW_W), h: minH + rand() * (maxH - minH), kind: rand() }));
+  // Tall trees first, so shorter ones in front overlap them.
+  trees.sort((a, b) => b.h - a.h);
+  trees.forEach((t, i) => {
+    const half = t.h * halfMul * (0.8 + rand() * 0.4);
+    wrapped((dx) => {
+      if (t.kind < gold * 0.25) crown(ctx, t.x + dx, height - 8, t.h * 0.7, ASPEN, rng(seed + i));
+      else tree(ctx, t.x + dx, height - 8, t.h, half, t.kind < gold ? LARCH : PINE, rng(seed + i));
+    });
+  });
+  return c;
+}
+
+/** Big drifting cumulus clouds: lit tops, lavender undersides. */
+function clouds(seed: number, count: number, size: number): HTMLCanvasElement {
+  const H = 110;
+  const [c, ctx] = makeCanvas(VIEW_W, H);
+  const rand = rng(seed);
   for (let i = 0; i < count; i++) {
-    const x = Math.round(rand() * VIEW_W);
-    const h = minH + rand() * (maxH - minH);
-    const half = h * halfMul * (0.8 + rand() * 0.4);
-    wrapped((dx) => pine(ctx, x + dx, height - 10, h, half, '#ffffff', shade, rng(seed + i)));
+    const cx = rand() * VIEW_W;
+    const cy = 30 + rand() * 50;
+    const w = size * (0.7 + rand() * 0.6);
+    const puffs = Array.from({ length: 7 }, () => ({ x: (rand() - 0.5) * w, y: -rand() * size * 0.35, r: Math.round(size * (0.18 + rand() * 0.16)) }));
+    wrapped((dx) => {
+      for (const p of puffs) disc(ctx, cx + dx + p.x, cy + p.y + 3, p.r, '#c4b8d8');
+      for (const p of puffs) disc(ctx, cx + dx + p.x, cy + p.y, p.r, '#ece6ee');
+      for (const p of puffs) disc(ctx, cx + dx + p.x - p.r * 0.3, cy + p.y - p.r * 0.35, Math.max(1, Math.round(p.r * 0.55)), '#ffffff');
+      // Flat, shaded base.
+      rect(ctx, cx + dx - w * 0.35, cy + 3, w * 0.7, 2, '#c4b8d8');
+    });
+  }
+  return c;
+}
+
+/** Broken horizontal lines that make reflections read as moving water. */
+function ripples(): HTMLCanvasElement {
+  const [c, ctx] = makeCanvas(VIEW_W, 60);
+  const rand = rng(81);
+  for (let i = 0; i < 220; i++) {
+    const y = Math.floor(rand() * 60);
+    const w = 3 + Math.floor(rand() * (6 + y * 0.3));
+    rect(ctx, Math.floor(rand() * VIEW_W), y, w, 1, rand() < 0.55 ? '#ffffff' : '#000000');
   }
   return c;
 }
 
 // ---------- Near layers: full color, multiplied by the light ----------
 
-const LEAF_COLORS = ['#d9772b', '#e8a23a', '#b5521f', '#c9632a', '#e8c04a', '#9a3a1a'];
+const LEAF_COLORS = ['#e8a23a', '#f0c050', '#d9772b', '#e8c04a', '#c9632a', '#f6d870'];
 
 /** Dark, mid and light tones for one autumn tree. */
 const CANOPIES = [
+  ['#7a4a12', '#c88a22', '#e8b440', '#f8dc78'],
   ['#6a2a12', '#c05a26', '#e89a3a', '#f6c860'],
-  ['#561c14', '#a3361f', '#d26a2a', '#eea050'],
-  ['#6e4a12', '#c08a2a', '#e2b84a', '#f6dc80'],
+  ['#6e5212', '#c8a02a', '#ecc84e', '#fae890'],
+  ['#7a4a12', '#d09a2c', '#f0c454', '#fbe796'],
 ];
 
 /** A ragged autumn canopy built from many small clumps: dark underneath, lit on top. */
@@ -146,24 +235,39 @@ function nearTrees(): HTMLCanvasElement {
   let x = 30;
   while (x < VIEW_W - 20) {
     const w = 8 + Math.round(rand() * 8);
-    const isPine = rand() < 0.35;
+    const kind = rand();
+    const isPine = kind < 0.3;
+    const isBirch = kind > 0.72;
     const tx = x;
     wrapped((dx) => {
       const left = tx + dx - w / 2;
-      // Trunk with bark stripes and a lit edge.
-      rect(ctx, left, 0, w, H, isPine ? '#3b2a20' : '#4a3424');
-      rect(ctx, left, 0, 2, H, isPine ? '#4d382a' : '#614532');
-      rect(ctx, left + w - 2, 0, 2, H, '#2e2018');
       const bark = rng(Math.round(tx));
-      for (let y = 0; y < H; y += 3 + Math.round(bark() * 5)) rect(ctx, left + 2 + Math.round(bark() * (w - 5)), y, 1, 2 + Math.round(bark() * 4), '#2e2018');
+      if (isBirch) {
+        // Birch: white bark with black horizontal marks.
+        rect(ctx, left, 0, w, H, '#e8e2d6');
+        rect(ctx, left, 0, 2, H, '#f8f4ec');
+        rect(ctx, left + w - 2, 0, 2, H, '#b8b0a2');
+        for (let y = 0; y < H; y += 4 + Math.round(bark() * 7)) rect(ctx, left + 1 + Math.round(bark() * (w - 4)), y, 2 + Math.round(bark() * 3), 1, '#2a2622');
+      } else {
+        // Trunk with bark stripes and a lit edge.
+        rect(ctx, left, 0, w, H, isPine ? '#3b2a20' : '#4a3424');
+        rect(ctx, left, 0, 2, H, isPine ? '#4d382a' : '#614532');
+        rect(ctx, left + w - 2, 0, 2, H, '#2e2018');
+        for (let y = 0; y < H; y += 3 + Math.round(bark() * 5)) rect(ctx, left + 2 + Math.round(bark() * (w - 5)), y, 1, 2 + Math.round(bark() * 4), '#2e2018');
+      }
       // Roots flare at the base.
-      rect(ctx, left - 3, H - 4, w + 6, 4, '#3b2a20');
+      rect(ctx, left - 3, H - 4, w + 6, 4, isBirch ? '#8a8072' : '#3b2a20');
       rect(ctx, left - 5, H - 2, w + 10, 2, '#33241a');
       if (isPine) {
-        for (let b = 0; b < 4; b++) {
-          const by = 6 + b * 14;
-          rect(ctx, left - 18 + b * 2, by, w + 36 - b * 4, 5, '#1f3a2a');
-          rect(ctx, left - 16 + b * 2, by, w + 32 - b * 4, 2, '#2c4d36');
+        // Drooping boughs with lit upper edges and needle texture.
+        for (let k = 0; k < 5; k++) {
+          const by = 2 + k * 13;
+          const reach = w / 2 + 20 - k * 2;
+          for (let i = -reach; i <= reach; i++) {
+            const droop = Math.round((i * i) / (reach * 6));
+            rect(ctx, tx + dx + i, by + droop, 1, 5, bark() < 0.15 ? '#162a20' : '#1f3a2a');
+            rect(ctx, tx + dx + i, by + droop, 1, 1, bark() < 0.5 ? '#3e6250' : '#2c4d36');
+          }
         }
       } else {
         canopy(ctx, tx + dx, w, rng(Math.round(tx) + 7));
@@ -183,9 +287,9 @@ function ground(): HTMLCanvasElement {
   const [c, ctx] = makeCanvas(VIEW_W, H);
   const rand = rng(31);
   rect(ctx, 0, line, VIEW_W, H - line, '#5a4030');
-  rect(ctx, 0, line, VIEW_W, 2, '#8f9c4c');
-  rect(ctx, 0, line + 2, VIEW_W, 2, '#6f7f3a');
-  rect(ctx, 0, line + 4, VIEW_W, 1, '#56632e');
+  rect(ctx, 0, line, VIEW_W, 2, '#d8bc5c');
+  rect(ctx, 0, line + 2, VIEW_W, 2, '#b8983e');
+  rect(ctx, 0, line + 4, VIEW_W, 1, '#8a7030');
   // Earth darkens toward the bottom of the screen, in dithered steps.
   for (let y = line + 5; y < H; y++) {
     const t = (y - line - 5) / (H - line - 5);
@@ -208,9 +312,9 @@ function ground(): HTMLCanvasElement {
     const x = Math.floor(rand() * VIEW_W);
     const h = 2 + Math.floor(rand() * 5);
     wrapped((dx) => {
-      rect(ctx, x + dx, line - h, 1, h, '#7c8c40');
-      rect(ctx, x + dx + 1, line - h + 2, 1, h - 2, '#5f6e32');
-      rect(ctx, x + dx - 1, line - h + 1, 1, h - 1, '#93a250');
+      rect(ctx, x + dx, line - h, 1, h, '#c8a84a');
+      rect(ctx, x + dx + 1, line - h + 2, 1, h - 2, '#9a7c34');
+      rect(ctx, x + dx - 1, line - h + 1, 1, h - 1, '#e8cc6c');
     });
   }
   // Rocks, mushrooms and a fallen log.
@@ -258,7 +362,7 @@ function foreground(): HTMLCanvasElement {
         for (let s = 0; s < len; s++) {
           const fx = x + dx + Math.cos(ang) * s * (f % 2 ? 1 : -1) * 0.9;
           const fy = H - Math.sin(ang) * s;
-          rect(ctx, fx, fy, 2, 2, s > len * 0.7 ? '#3a4d26' : '#22301a');
+          rect(ctx, fx, fy, 2, 2, s > len * 0.7 ? '#b8702a' : '#6a3a18');
         }
       }
     });
@@ -365,9 +469,12 @@ export function createScenery(scene: Phaser.Scene): void {
   if (t.exists('bg-mountains')) return;
   t.addCanvas('bg-mountains', mountains());
   t.addCanvas('bg-ridge', ridge());
-  t.addCanvas('bg-far', forest(110, 13, 70, 30, 70, 0.3, '#e8e8e8'));
-  t.addCanvas('bg-mid', forest(140, 14, 34, 55, 110, 0.28, '#e0e0e0'));
-  t.addCanvas('bg-big', forest(190, 15, 12, 120, 175, 0.26, '#d8d8d8'));
+  t.addCanvas('bg-far', forest(110, 13, 80, 26, 66, 0.3, 0.55));
+  t.addCanvas('bg-mid', forest(140, 14, 40, 50, 110, 0.28, 0.5));
+  t.addCanvas('bg-big', forest(190, 15, 13, 110, 175, 0.26, 0.45));
+  t.addCanvas('clouds-far', clouds(91, 6, 26));
+  t.addCanvas('clouds-near', clouds(92, 4, 46));
+  t.addCanvas('ripples', ripples());
   t.addCanvas('bg-near', nearTrees());
   t.addCanvas('bg-ground', ground());
   t.addCanvas('bg-front', foreground());
@@ -385,6 +492,9 @@ export function createScenery(scene: Phaser.Scene): void {
 }
 
 // ---------- The living backdrop ----------
+
+/** How strongly each far layer (farthest first) fades into the haze. */
+const HAZE = [0.6, 0.47, 0.35, 0.23, 0.12];
 
 const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
 
@@ -419,6 +529,10 @@ export class Backdrop {
   private sun: Phaser.GameObjects.Image;
   private moon: Phaser.GameObjects.Image;
   private far: [Phaser.GameObjects.TileSprite, number, number][] = [];
+  /** Solid-color copies of the far layers that veil them in haze. */
+  private hazes: [Phaser.GameObjects.TileSprite, number, number][] = [];
+  private clouds: [Phaser.GameObjects.TileSprite, number, number][] = [];
+  private ripple: Phaser.GameObjects.TileSprite | null = null;
   private near: [Phaser.GameObjects.TileSprite, number][] = [];
   private mists: Phaser.GameObjects.TileSprite[] = [];
   private rays: Phaser.GameObjects.Image[] = [];
@@ -459,6 +573,8 @@ export class Backdrop {
       // Across open water, the tall near forest is too far away to tower over you.
       if (opts.lake && key === 'bg-big') return;
       this.far.push([layer(key, bottom - lift, h, depth), f, i]);
+      // Atmospheric perspective: the farther the layer, the more it fades into the haze.
+      this.hazes.push([layer(key, bottom - lift, h, depth + 0.05), f, i]);
       if (opts.lake) {
         // The mirror image: flipped about the horizon, behind a veil of water.
         const r = scene.add
@@ -470,6 +586,15 @@ export class Backdrop {
         this.reflections.push([r, f, i]);
       }
     });
+    this.clouds.push([layer('clouds-far', 110, 110, -97), 0.02, 3]);
+    this.clouds.push([layer('clouds-near', 125, 110, -96), 0.05, 6]);
+    if (opts.lake) {
+      this.ripple = scene.add
+        .tileSprite(0, LAKE_HORIZON + 2, VIEW_W, GROUND_Y - LAKE_HORIZON, 'ripples')
+        .setOrigin(0)
+        .setScrollFactor(0)
+        .setDepth(-57);
+    }
     this.mists.push(layer('mist', 214 - lift, 40, -79));
     this.mists.push(layer('mist', 226 - lift, 40, -74).setFlipX(true));
     if (opts.lake) this.mists.push(layer('mist', LAKE_HORIZON + 14, 40, -58));
@@ -533,13 +658,26 @@ export class Backdrop {
     this.moon.setPosition(Math.round(40 + nightT * 400), Math.round(180 - Math.sin(Math.max(0, Math.min(1, nightT)) * Math.PI) * 140));
     this.moon.setAlpha(night);
 
-    for (const [t, f, i] of this.far) {
+    for (const [t, f] of this.far) {
       t.tilePositionX = Math.round(scrollX * f) % VIEW_W;
-      t.setTint(g.layers[i]);
+      t.setTint(this.light);
+    }
+    for (const [t, f, i] of this.hazes) {
+      t.tilePositionX = Math.round(scrollX * f) % VIEW_W;
+      t.setTintFill(g.layers[i]).setAlpha(HAZE[i] + night * 0.2);
+    }
+    for (const [t, f, drift] of this.clouds) {
+      t.tilePositionX = Math.round(scrollX * f + this.time * drift) % VIEW_W;
+      // Clouds take on the sky's color at dawn and dusk.
+      t.setTint(lerpColor(this.light, g.skyBottom, 0.3)).setAlpha(1 - night * 0.65);
     }
     for (const [t, f, i] of this.reflections) {
       t.tilePositionX = Math.round(scrollX * f) % VIEW_W;
-      t.setTint(lerpColor(g.layers[i], 0x101820, 0.3)).setAlpha(0.62);
+      t.setTint(lerpColor(lerpColor(this.light, g.layers[i], HAZE[i]), 0x101820, 0.35)).setAlpha(0.7);
+    }
+    if (this.ripple) {
+      this.ripple.tilePositionX = Math.round(scrollX * 0.6 + this.time * 3) % VIEW_W;
+      this.ripple.setTint(lerpColor(g.skyBottom, 0xffffff, 0.3)).setAlpha(0.16);
     }
     if (this.opts.lake) this.updateWater(scrollX, gold, night);
     this.mists.forEach((m, i) => {
