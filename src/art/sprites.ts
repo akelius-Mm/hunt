@@ -13,70 +13,89 @@ interface Family {
   palette: Palette;
 }
 
-// ---------- Hunter ----------
+// ---------- People ----------
+// The hunter and the angler share one build, 20x30, lit from the left. Outfits are
+// palette swaps. Weapons and the fly rod are drawn by the scenes, in the hand at HAND.
 
-const HUNTER_TOP = [
-  '......oooo........',
-  '.....oHHHHo.......',
-  '....oHHHHhho......',
-  '...oooooooooo.....',
-  '.....oSSSSo.......',
-  '.....oSSSeo.......',
-  '.....osSSSo.......',
-  '......oSSo........',
-  '....ooVVVVoo......',
-  '...oVVVVVVVvo.....',
-  '...ojVVVVVVvo.....',
-  '...ojVVVVVJJWWGGGG',
-  '...ojVVVVVSSWo....',
-  '...oVVVVVVVvo.....',
-  '...ovVVVVVVvo.....',
+/** The hand holding the gun or rod, in sprite pixels (standing and crouched alike). */
+export const HAND = { x: 18, y: 17 };
+
+const PERSON_TOP = [
+  '.......ooooo........',
+  '......oIHHHHo.......',
+  '.....oIHHHHHho......',
+  '....obbbbbbbbbo.....',
+  '..ooIIHHHHHHHHhoo...',
+  '...oohhhhhhhhhhoo...',
+  '.....orSSSSSSsso....',
+  '.....orSSSSeSSSo....',
+  '.....orSSSSSSSSo....',
+  '.....orrSSSSSsso....',
+  '......orBBBBBBo.....',
+  '......oosssssoo.....',
+  '....ooWVRRRRRVvoo...',
+  '...oWWVkVRRRVkVvvo..',
+  '...oWVVVVRRRVVVVvo..',
+  '...oWVkkVRRRVkkVvo..',
+  '..oRWVVVVRRRVVVVvRo.',
+  '..oRWVVVVVVVVVVvoSSo',
+  '..orLLLLLLYLLLLLlo..',
 ];
 
-const HUNTER_LEGS = {
+const PERSON_LEGS = {
   idle: [
-    '....oPPPPPPo......',
-    '....oPPppPPo......',
-    '....oPPo.oPo......',
-    '....oPPo.oPo......',
-    '....oPpo.oPo......',
-    '....oPpo.oPo......',
-    '...oBBBo.oBBo.....',
-    '...oBBBBooBBBo....',
+    '...oQPPPPPPPPPPpo...',
+    '...oQPPPPPPPPPPpo...',
+    '...oQPPPPppPPPPpo...',
+    '...oQPPPo..oQPPpo...',
+    '...oQPPPo..oQPPpo...',
+    '...oQPPpo..oQPPpo...',
+    '...oQPPpo..oQPPpo...',
+    '...oQPPpo..oQPPpo...',
+    '...oXxXXo..oXxXXo...',
+    '..oXxXXXXooXxXXXXo..',
+    '..ooooooooooooooooo.',
   ],
   walk1: [
-    '....oPPPPPPo......',
-    '....oPPppPPPo.....',
-    '...oPPo..oPPo.....',
-    '...oPPo...oPPo....',
-    '..oPpo....oPPo....',
-    '..oPpo.....oPo....',
-    '.oBBBo.....oBBo...',
-    '.oBBBBo....oBBBo..',
+    '...oQPPPPPPPPPPpo...',
+    '...oQPPPPPPPPPPPpo..',
+    '..oQPPPppo.oQPPPpo..',
+    '..oQPPPo....oQPPpo..',
+    '.oQPPpo.....oQPPpo..',
+    '.oQPPpo......oQPpo..',
+    'oQPPpo.......oQPPpo.',
+    'oQPPpo.......oQPPpo.',
+    'oXxXXo.......oXxXXo.',
+    'XxXXXXo......oXxXXXo',
+    'ooooooo......ooooooo',
   ],
   walk2: [
-    '....oPPPPPPo......',
-    '....oPPppPPo......',
-    '.....oPPPPo.......',
-    '.....oPPPo........',
-    '.....oPpPo........',
-    '.....oPpPo........',
-    '....oBBBBo........',
-    '....oBBBBBo.......',
+    '...oQPPPPPPPPPPpo...',
+    '...oQPPPPPPPPPpo....',
+    '....oQPPPPPPPpo.....',
+    '.....oQPPPPPpo......',
+    '.....oQPPPPPpo......',
+    '.....oQPPpPPpo......',
+    '.....oQPPpPPpo......',
+    '.....oQPPpPPpo......',
+    '.....oXxXXXXXo......',
+    '....oXxXXXXXXXo.....',
+    '....ooooooooooo.....',
   ],
   crouch: [
-    '....oPPPPPPPPo....',
-    '...oPPPPPPPPPPo...',
-    '...oPppPPoBBBBo...',
-    '..oBBBBBo.oBBBBo..',
+    '...oQPPPPPPPPPPPPPo.',
+    '..oQPPPPPPPPPPPPPPpo',
+    '..oQPPppPPPoXxXXXXo.',
+    '.oXxXXXXXooXxXXXXXXo',
+    '.ooooooooooooooooooo',
   ],
 };
 
-const HUNTER_FRAMES = Object.fromEntries(Object.entries(HUNTER_LEGS).map(([k, legs]) => [k, [...HUNTER_TOP, ...legs]]));
+const PERSON_FRAMES = Object.fromEntries(Object.entries(PERSON_LEGS).map(([k, l]) => [k, [...PERSON_TOP, ...l]]));
 
-const HUNTER_BASE: Palette = {
-  o: '#1d1612', S: '#e9b88f', s: '#b9875f', e: '#1d1612', j: '#3f4f35', J: '#4f6141',
-  W: '#7a4b2a', G: '#3a3a3e', P: '#6b6a4a', p: '#4d4c35', B: '#3b2b1d',
+const PERSON_BASE: Palette = {
+  o: '#2a1e16', S: '#e8b48a', s: '#c08a62', e: '#2a1e16', r: '#5a3a22', B: '#7a5236', R: '#a8402c',
+  L: '#3a2a1a', Y: '#d8b050', l: '#2a1e12', P: '#7a7a52', p: '#5a5a3a', Q: '#949468', X: '#4a3424', x: '#6a4a30',
 };
 
 // ---------- Animals (all facing right) ----------
@@ -278,25 +297,6 @@ const DOG = {
 };
 const DOG_PAL: Palette = { o: '#3a2a1a', Y: '#e2c27a', y: '#c09a54', e: '#111111', n: '#1a1a1a', r: '#c0442c', w: '#cfe4f0' };
 
-// The angler: same build as the hunter, rod hand forward, in chest waders.
-const ANGLER_TOP = [
-  '......oooo........',
-  '.....oHHHHo.......',
-  '....oHHHHhho......',
-  '...oooooooooo.....',
-  '.....oSSSSo.......',
-  '.....oSSSeo.......',
-  '.....osSSSo.......',
-  '......oSSo........',
-  '....ooVVVVoo......',
-  '...oVVkVVkVvo.....',
-  '...ojVVVVVVvo.....',
-  '...ojVVVVVJJSS....',
-  '...ojVVVVVVvo.....',
-  '...oPPPPPPPPo.....',
-  '...oPPPPPPPPo.....',
-];
-const ANGLER_FRAMES = Object.fromEntries(Object.entries(HUNTER_LEGS).map(([k, legs]) => [k, [...ANGLER_TOP, ...legs]]));
 
 // Trout, facing left. One shape, three species' colors.
 const TROUT = [
@@ -316,8 +316,8 @@ const ICON_ALERT = ['ooooo', 'oYYYo', 'oooYo', '.oYYo', '.ooo.', '.oYo.', '.ooo.
 const ICON_FLEE = ['.ooo.', '.oRo.', '.oRo.', '.oRo.', '.ooo.', '.oRo.', '.ooo.'];
 
 const FAMILIES: Record<string, Family> = {
-  hunter: { frames: HUNTER_FRAMES, palette: { ...HUNTER_BASE, H: '#5b4a32', h: '#3f3322', V: '#6b5a3c', v: '#4f422c' } },
-  orange: { frames: HUNTER_FRAMES, palette: { ...HUNTER_BASE, H: '#ff7a1a', h: '#c4520c', V: '#ff7a1a', v: '#c4520c' } },
+  hunter: { frames: PERSON_FRAMES, palette: { ...PERSON_BASE, H: '#6b5838', h: '#4e3f28', I: '#8a7450', b: '#3a2e1e', V: '#7a6440', v: '#5a4a2e', W: '#9a8256', k: '#4a3c24' } },
+  orange: { frames: PERSON_FRAMES, palette: { ...PERSON_BASE, H: '#ff7a1a', h: '#c4520c', I: '#ffa050', b: '#2a1e16', V: '#ff7a1a', v: '#c4520c', W: '#ffa050', k: '#a8400a' } },
   buck: {
     frames: { idle: [...DEER_HEAD_BUCK, ...DEER_BODY, ...DEER_LEGS.idle], walk: [...DEER_HEAD_BUCK, ...DEER_BODY, ...DEER_LEGS.walk] },
     palette: DEER_PAL,
@@ -330,7 +330,13 @@ const FAMILIES: Record<string, Family> = {
   squirrel: { frames: { idle: SQUIRREL, walk: SQUIRREL_HOP }, palette: { o: '#1e1e22', T: '#b0b0b0', t: '#8a8a8a', B: '#8a8a8e', b: '#66666a', L: '#ece6da', e: '#111111', n: '#444444' } },
   turkey: { frames: { idle: [...TURKEY, ...TURKEY_LEGS.idle], walk: [...TURKEY, ...TURKEY_LEGS.walk] }, palette: TURKEY_PAL },
   mallard: { frames: MALLARD, palette: MALLARD_PAL },
-  angler: { frames: ANGLER_FRAMES, palette: { ...HUNTER_BASE, H: '#b89a6a', h: '#8a7048', V: '#9a9466', v: '#767048', k: '#5a5638', P: '#5e6650', p: '#464c3c' } },
+  angler: {
+    frames: PERSON_FRAMES,
+    palette: {
+      ...PERSON_BASE, H: '#b89a6a', h: '#8a7048', I: '#d4b886', b: '#5a4a30', V: '#9a9466', v: '#767048', W: '#b8b282', k: '#5a5638',
+      R: '#5a7aa0', P: '#5e6650', p: '#464c3c', Q: '#76806a', L: '#464c3c', Y: '#464c3c', l: '#3a3e30', X: '#3a3a32', x: '#55554a',
+    },
+  },
   'trout-rainbow': { frames: { swim: TROUT }, palette: { o: '#1e1e1a', G: '#6e7e48', g: '#1e2418', P: '#e07890', L: '#eeeae0', T: '#6e7e48', e: '#111111' } },
   'trout-brown': { frames: { swim: TROUT }, palette: { o: '#1e1610', G: '#8a6a30', g: '#2a1a10', P: '#c8442c', L: '#ecd490', T: '#8a6a30', e: '#111111' } },
   'trout-brook': { frames: { swim: TROUT }, palette: { o: '#1a1e18', G: '#3e5a3a', g: '#d0c878', P: '#e0503a', L: '#f08a3a', T: '#c84a2a', e: '#111111' } },
