@@ -162,7 +162,7 @@ export const ITEMS: ItemDef[] = [
     category: 'gear',
     price: 120,
     unique: true,
-    summary: 'See far animals clearly (B).',
+    summary: 'See far animals clearly.',
     tip: '"Glass before you move." Scan with binoculars to find and identify game before it sees you. Never use your rifle scope to look at things you are not ready to shoot.',
   },
   {
@@ -180,7 +180,7 @@ export const ITEMS: ItemDef[] = [
     category: 'gear',
     price: 20,
     unique: true,
-    summary: 'Pull curious deer closer (C).',
+    summary: 'Pull curious deer closer.',
     tip: 'A grunt call copies the sound bucks make. Call softly and not too often. Too much calling makes deer suspicious.',
   },
   {
@@ -189,7 +189,7 @@ export const ITEMS: ItemDef[] = [
     category: 'gear',
     price: 25,
     unique: true,
-    summary: 'Call turkeys in (C).',
+    summary: 'Call turkeys in.',
     tip: 'A box call makes hen yelps by sliding the lid over the box. Gobblers come looking for the hen. Never wear red, white or blue turkey hunting: those are the colors of a gobbler\'s head.',
   },
   {
@@ -198,7 +198,7 @@ export const ITEMS: ItemDef[] = [
     category: 'gear',
     price: 45,
     unique: true,
-    summary: 'Wade out to retrieve ducks (E).',
+    summary: 'Wade out to retrieve ducks.',
     tip: 'Waders let you walk out into shallow water to pick up downed birds. Wade carefully: mud can be deep, and cold water is dangerous.',
   },
   {
@@ -216,7 +216,7 @@ export const ITEMS: ItemDef[] = [
     category: 'gear',
     price: 25,
     unique: true,
-    summary: 'Turn passing ducks toward you (C).',
+    summary: 'Turn passing ducks toward you.',
     tip: 'A hen mallard\'s quack and feed chatter can turn a passing flock. Call at the birds\' tails and wingtips, and go quiet when they are coming in.',
   },
   {
@@ -235,7 +235,7 @@ export const ITEMS: ItemDef[] = [
     price: 150,
     unique: true,
     requires: ['harness'],
-    summary: 'Hunt from above (T).',
+    summary: 'Hunt from above.',
     tip: 'Up high, you are out of a deer\'s line of sight, and your scent tends to carry over them. Always use a haul line to pull up your gun or bow. Never climb holding it.',
   },
 

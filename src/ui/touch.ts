@@ -1,16 +1,15 @@
 /**
- * On-screen controls for phones and tablets. Hold buttons (walk, hold breath) write to
- * `pad`, which the hunt reads each frame alongside the keyboard; tap buttons call actions.
+ * On-screen controls for phones and tablets. Hold buttons (walk) write to `pad`, which
+ * the hunt reads each frame alongside the keyboard; tap buttons call actions.
+ * Aiming happens on the scene itself: touch and hold to aim, let go to shoot.
  */
-export const pad = { left: false, right: false, run: false, breath: false };
+export const pad = { left: false, right: false, run: false };
 
 export function isTouch(): boolean {
   return window.matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
 }
 
 export interface TouchActions {
-  aim(): void;
-  fire(): void;
   crouch(): void;
   act(): void;
   glass(): void;
@@ -20,10 +19,18 @@ export interface TouchActions {
   camp(): void;
 }
 
-const root = () => document.getElementById('touch')!;
-let lastAiming: boolean | null = null;
+/** Which gear buttons to show: only gear the hunter actually has. */
+export interface TouchGear {
+  glass: boolean;
+  call: boolean;
+  stand: boolean;
+  swap: boolean;
+}
 
-function hold(el: HTMLElement, key: 'left' | 'right' | 'breath'): void {
+const root = () => document.getElementById('touch')!;
+let last = '';
+
+function hold(el: HTMLElement, key: 'left' | 'right'): void {
   const on = (e: PointerEvent) => {
     e.preventDefault();
     try {
@@ -44,29 +51,24 @@ function hold(el: HTMLElement, key: 'left' | 'right' | 'breath'): void {
   el.addEventListener('lostpointercapture', off);
 }
 
-export function showTouch(actions: TouchActions): void {
+export function showTouch(actions: TouchActions, gear: TouchGear): void {
   const r = root();
+  const tool = (key: keyof TouchGear, icon: string, label: string) =>
+    gear[key] ? `<button class="tbtn mini" data-t="${key}" aria-label="${label}">${icon}</button>` : '';
   r.innerHTML = `
     <button class="tbtn" id="t-left" aria-label="Walk left">◀</button>
     <button class="tbtn" id="t-right" aria-label="Walk right">▶</button>
     <button class="tbtn small" id="t-run">Run</button>
     <button class="tbtn small" id="t-crouch">Crouch</button>
-    <button class="tbtn" id="t-act" aria-label="Tag or pick up">✋</button>
-    <button class="tbtn big" id="t-aim">Aim</button>
-    <button class="tbtn big fire" id="t-fire">Fire</button>
-    <button class="tbtn small" id="t-breath">Hold breath</button>
+    <button class="tbtn big" id="t-act" aria-label="Tag or pick up">✋</button>
     <div class="t-row">
-      <button class="tbtn mini" data-t="glass">🔭</button>
-      <button class="tbtn mini" data-t="call">📯</button>
-      <button class="tbtn mini" data-t="stand">🌲</button>
-      <button class="tbtn mini" data-t="swap">🔁</button>
+      ${tool('glass', '🔭', 'Binoculars')}${tool('call', '📯', 'Use call')}${tool('stand', '🌲', 'Tree stand')}${tool('swap', '🔁', 'Switch weapon')}
       <button class="tbtn mini" data-t="camp" aria-label="Back to camp">⛺</button>
     </div>`;
   r.hidden = false;
-  lastAiming = null;
+  last = '';
   hold(r.querySelector('#t-left')!, 'left');
   hold(r.querySelector('#t-right')!, 'right');
-  hold(r.querySelector('#t-breath')!, 'breath');
 
   const tap = (sel: string, fn: () => void) =>
     r.querySelector(sel)!.addEventListener('pointerdown', (e) => {
@@ -82,30 +84,28 @@ export function showTouch(actions: TouchActions): void {
     r.querySelector('#t-crouch')!.classList.toggle('on');
   });
   tap('#t-act', actions.act);
-  tap('#t-aim', actions.aim);
-  tap('#t-fire', actions.fire);
   r.querySelectorAll<HTMLElement>('[data-t]').forEach((b) =>
     b.addEventListener('pointerdown', (e) => {
       e.preventDefault();
-      actions[b.dataset.t as 'glass' | 'call' | 'stand' | 'swap' | 'camp']();
+      actions[b.dataset.t as keyof TouchActions]();
     }),
   );
 }
 
-/** Swap the right-hand buttons between walking and aiming. */
-export function setTouchAiming(aiming: boolean): void {
-  if (aiming === lastAiming) return;
-  lastAiming = aiming;
+/** While aiming, the controls fade back; ✋ appears only when there's something to do. */
+export function setTouchState(aiming: boolean, canAct: boolean): void {
+  const key = `${aiming}|${canAct}`;
+  if (key === last) return;
+  last = key;
   const r = root();
   r.classList.toggle('aiming', aiming);
-  const aim = r.querySelector('#t-aim');
-  if (aim) aim.textContent = aiming ? 'Lower' : 'Aim';
+  r.classList.toggle('can-act', canAct);
 }
 
 export function hideTouch(): void {
   const r = root();
   r.innerHTML = '';
   r.hidden = true;
-  r.classList.remove('aiming');
-  pad.left = pad.right = pad.run = pad.breath = false;
+  r.classList.remove('aiming', 'can-act');
+  pad.left = pad.right = pad.run = false;
 }
