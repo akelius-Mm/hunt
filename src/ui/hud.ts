@@ -1,4 +1,4 @@
-import { VIEW_H, VIEW_W } from '../art/view';
+import { SCREEN_H, SCREEN_W } from '../art/view';
 
 /** The hunt HUD is HTML laid over the canvas, so text stays sharp at any size. */
 export interface HudData {
@@ -18,7 +18,7 @@ export interface HudData {
 }
 
 export interface Label {
-  /** Screen position in game pixels. */
+  /** Screen position in screen pixels. */
   x: number;
   y: number;
   title: string;
@@ -57,7 +57,7 @@ export function setLabels(list: Label[]): void {
   const html = list
     .map(
       (l) =>
-        `<div class="glass-label ${l.ok ? 'ok' : ''}" style="left:${((l.x / VIEW_W) * 100).toFixed(2)}%;top:${((l.y / VIEW_H) * 100).toFixed(2)}%">
+        `<div class="glass-label ${l.ok ? 'ok' : ''}" style="left:${((l.x / SCREEN_W) * 100).toFixed(2)}%;top:${((l.y / SCREEN_H) * 100).toFixed(2)}%">
           <b>${l.title}</b><br>${l.detail}</div>`,
     )
     .join('');

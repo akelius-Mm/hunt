@@ -1,11 +1,12 @@
 import Phaser from 'phaser';
+import { PX } from './view';
 
 /**
- * Everything is drawn on one low-resolution pixel grid (see VIEW_W/VIEW_H) and scaled
- * up by the browser, so characters and scenery share the same pixel size.
- * Hit zones in src/data/animals.ts use these sprite pixel coordinates.
+ * Sprites are designed as pixel maps in world units (one map pixel = one world unit).
+ * Hit zones in src/data/animals.ts use these map coordinates. Textures are built at
+ * screen resolution with Scale2x, which doubles a sprite while rounding its diagonal
+ * edges, so sprites keep the same pixel size as the high-resolution scenery.
  */
-export const SCALE = 1;
 
 type Palette = Record<string, string>;
 interface Family {
@@ -354,12 +355,39 @@ function familyWidth(f: Family): number {
   return Math.max(...Object.values(f.frames).flatMap((rows) => rows.map((r) => r.length)));
 }
 
+/**
+ * Scale2x (EPX): each map pixel becomes 2x2, and a corner takes a neighbor's color when
+ * two neighbors agree, which rounds off stair-step diagonals instead of making blocks.
+ */
+export function scale2x(rows: string[], width: number): string[] {
+  const at = (x: number, y: number) => (y < 0 || y >= rows.length || x < 0 || x >= width ? '.' : rows[y][x] ?? '.');
+  const out: string[] = [];
+  for (let y = 0; y < rows.length; y++) {
+    let top = '';
+    let bottom = '';
+    for (let x = 0; x < width; x++) {
+      const p = at(x, y);
+      const a = at(x, y - 1);
+      const b = at(x + 1, y);
+      const c = at(x - 1, y);
+      const d = at(x, y + 1);
+      top += (c === a && c !== d && a !== b ? a : p) + (a === b && a !== c && b !== d ? b : p);
+      bottom += (d === c && d !== b && c !== a ? c : p) + (b === d && b !== a && d !== c ? d : p);
+    }
+    out.push(top, bottom);
+  }
+  return out;
+}
+
+/** Draws a pixel map at screen resolution (Scale2x when PX is 2). */
 export function pixelCanvas(rows: string[], palette: Palette, width: number): HTMLCanvasElement {
+  const grid = PX === 2 ? scale2x(rows, width) : rows;
+  const w = width * PX;
   const canvas = document.createElement('canvas');
-  canvas.width = width;
-  canvas.height = rows.length;
+  canvas.width = w;
+  canvas.height = grid.length;
   const ctx = canvas.getContext('2d')!;
-  rows.forEach((row, y) => {
+  grid.forEach((row, y) => {
     [...row].forEach((ch, x) => {
       const color = palette[ch];
       if (!color) return;
@@ -368,6 +396,46 @@ export function pixelCanvas(rows: string[], palette: Palette, width: number): HT
     });
   });
   return canvas;
+}
+
+/** An image of a sprite texture, sized in world units. */
+export function spriteImage(scene: Phaser.Scene, x: number, y: number, key: string): Phaser.GameObjects.Image {
+  return scene.add.image(x, y, key).setScale(1 / PX);
+}
+
+/** Scale2x for any canvas (for art drawn with canvas calls rather than pixel maps). */
+export function scale2xCanvas(src: HTMLCanvasElement): HTMLCanvasElement {
+  const w = src.width;
+  const h = src.height;
+  const data = src.getContext('2d')!.getImageData(0, 0, w, h).data;
+  const px = (x: number, y: number) => {
+    if (x < 0 || y < 0 || x >= w || y >= h) return -1;
+    const o = (y * w + x) * 4;
+    return data[o + 3] < 128 ? -1 : (data[o] << 16) | (data[o + 1] << 8) | data[o + 2];
+  };
+  const out = document.createElement('canvas');
+  out.width = w * 2;
+  out.height = h * 2;
+  const ctx = out.getContext('2d')!;
+  const put = (x: number, y: number, c: number) => {
+    if (c < 0) return;
+    ctx.fillStyle = `#${c.toString(16).padStart(6, '0')}`;
+    ctx.fillRect(x, y, 1, 1);
+  };
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const p = px(x, y);
+      const a = px(x, y - 1);
+      const b = px(x + 1, y);
+      const c = px(x - 1, y);
+      const d = px(x, y + 1);
+      put(x * 2, y * 2, c === a && c !== d && a !== b ? a : p);
+      put(x * 2 + 1, y * 2, a === b && a !== c && b !== d ? b : p);
+      put(x * 2, y * 2 + 1, d === c && d !== b && c !== a ? c : p);
+      put(x * 2 + 1, y * 2 + 1, b === d && b !== a && d !== c ? d : p);
+    }
+  }
+  return out;
 }
 
 export function createSprites(scene: Phaser.Scene): void {

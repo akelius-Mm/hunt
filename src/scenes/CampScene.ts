@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { Backdrop } from '../art/backdrop';
-import { createSprites, frameKey } from '../art/sprites';
+import { setupCameras } from '../art/cameras';
+import { createSprites, frameKey, scale2xCanvas, spriteImage } from '../art/sprites';
 import { GROUND_Y, VIEW_W } from '../art/view';
 
 /** Golden hour at camp: the coziest light of the day. */
@@ -106,8 +107,10 @@ export class CampScene extends Phaser.Scene {
   create(): void {
     createSprites(this);
     this.backdrop = new Backdrop(this, { scrolling: false });
+    setupCameras(this, this.backdrop).follow(VIEW_W / 2, VIEW_W, 1);
     if (!this.textures.exists('camp')) {
-      this.textures.addCanvas('camp', campCanvas());
+      // Drawn in world units, then Scale2x'd to screen resolution like the sprites.
+      this.textures.addCanvas('camp', scale2xCanvas(campCanvas()));
       const pal: Record<string, string> = { y: '#ffe08a', Y: '#ffc04a', O: '#ff8a2a', R: '#e0482a' };
       FLAMES.forEach((rows, i) => {
         const c = document.createElement('canvas');
@@ -115,10 +118,10 @@ export class CampScene extends Phaser.Scene {
         c.height = 7;
         const ctx = c.getContext('2d')!;
         rows.forEach((row, y) => [...row].forEach((ch, x) => pal[ch] && r(ctx, x, y, 1, 1, pal[ch])));
-        this.textures.addCanvas(`flame-${i}`, c);
+        this.textures.addCanvas(`flame-${i}`, scale2xCanvas(c));
       });
     }
-    this.camp = this.add.image(0, 0, 'camp').setOrigin(0).setDepth(-40);
+    this.camp = spriteImage(this, 0, 0, 'camp').setOrigin(0).setDepth(-40);
 
     // Warm window light and firelight are not darkened by the scene light.
     for (const wx of [304, 376]) {
@@ -127,9 +130,9 @@ export class CampScene extends Phaser.Scene {
       this.add.rectangle(wx, GROUND_Y - 29, 20, 2, 0x3b2618).setOrigin(0).setDepth(-39);
     }
     this.glow = this.add.circle(252, GROUND_Y - 6, 40, 0xff9a40, 0.18).setDepth(-38).setBlendMode(Phaser.BlendModes.ADD);
-    this.flames = [248, 253, 257].map((x) => this.add.image(x, GROUND_Y - 4, 'flame-0').setOrigin(0.5, 1).setDepth(-37));
+    this.flames = [248, 253, 257].map((x) => spriteImage(this, x, GROUND_Y - 4, 'flame-0').setOrigin(0.5, 1).setDepth(-37));
 
-    this.hunter = this.add.image(224, GROUND_Y, frameKey('orange', 'idle')).setOrigin(0.5, 1).setDepth(-36);
+    this.hunter = spriteImage(this, 224, GROUND_Y, frameKey('orange', 'idle')).setOrigin(0.5, 1).setDepth(-36);
     for (let i = 0; i < 8; i++) {
       this.smoke.push(this.add.rectangle(384, GROUND_Y - 92 - i * 8, 3, 3, 0xd8d0c8, 0.5).setDepth(-41));
     }

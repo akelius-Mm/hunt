@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { Backdrop } from '../art/backdrop';
-import { createSprites, frameKey, HAND } from '../art/sprites';
+import { setupCameras, type SceneCameras } from '../art/cameras';
+import { createSprites, frameKey, HAND, spriteImage } from '../art/sprites';
 import { GROUND_Y, LAKE_HORIZON, VIEW_W } from '../art/view';
 import {
   cannotFish,
@@ -85,6 +86,8 @@ export class FishScene extends Phaser.Scene {
   private angler!: Phaser.GameObjects.Image;
   private gfx!: Phaser.GameObjects.Graphics;
   private keys!: Record<string, Phaser.Input.Keyboard.Key>;
+  private cams!: SceneCameras;
+  private viewLeft = 0;
 
   private trout: Trout[] = [];
   private rings: { x: number; y: number; age: number }[] = [];
@@ -147,13 +150,10 @@ export class FishScene extends Phaser.Scene {
   create(): void {
     createSprites(this);
     this.backdrop = new Backdrop(this, { scrolling: true, lake: true });
+    this.cams = setupCameras(this, this.backdrop, { touchZoom: isTouch() ? TOUCH_ZOOM : undefined });
+    this.viewLeft = 0;
     this.gfx = this.add.graphics().setDepth(22);
-    this.angler = this.add.image(160, GROUND_Y, frameKey('angler', 'idle')).setOrigin(0.5, 1).setDepth(20);
-
-    const cam = this.cameras.main;
-    cam.setBounds(0, 0, WORLD_W, 270);
-    cam.startFollow(this.angler, true, 0.1, 0);
-    if (isTouch()) cam.setOrigin(0.5, 0.75).setZoom(TOUCH_ZOOM);
+    this.angler = spriteImage(this, 160, GROUND_Y, frameKey('angler', 'idle')).setOrigin(0.5, 1).setDepth(20);
 
     for (let i = 0; i < 8; i++) this.spawnTrout(140 + i * 160 + Math.random() * 80);
     for (let i = 0; i < 16; i++) {
@@ -227,7 +227,7 @@ export class FishScene extends Phaser.Scene {
     if (this.phase === 'idle') {
       const missing = cannotFish(this.state, this.fly);
       if (missing) return this.teachOnce(missing, true);
-      const world = p ? this.cameras.main.getWorldPoint(p.x, p.y) : new Phaser.Math.Vector2(this.angler.x + this.facing * 80, LAKE_HORIZON + 30);
+      const world = p ? this.cams.world.getWorldPoint(p.x, p.y) : new Phaser.Math.Vector2(this.angler.x + this.facing * 80, LAKE_HORIZON + 30);
       this.phase = 'loading';
       this.loadTime = 0;
       this.aimAt(world.x, world.y);
@@ -322,7 +322,8 @@ export class FishScene extends Phaser.Scene {
     this.updateAngler(dt);
     this.updateTrout(dt);
     this.updateLine(dt);
-    this.backdrop.update(this.hour, this.cameras.main.scrollX, dt, 1);
+    this.viewLeft = this.cams.follow(this.angler.x, WORLD_W);
+    this.backdrop.update(this.hour, this.viewLeft, dt, 1);
     this.angler.setTint(this.backdrop.light);
     this.draw();
     this.updateHud();
@@ -388,7 +389,7 @@ export class FishScene extends Phaser.Scene {
       this.loadTime += dt;
       const p = this.input.activePointer;
       if (p.isDown) {
-        const w = this.cameras.main.getWorldPoint(p.x, p.y);
+        const w = this.cams.world.getWorldPoint(p.x, p.y);
         this.aimAt(w.x, w.y);
       }
     } else if (this.phase === 'flying') {
@@ -398,7 +399,7 @@ export class FishScene extends Phaser.Scene {
       const p = this.input.activePointer;
       if (this.recastAt && (p.isDown || this.keys.SPACE.isDown) && this.time.now - this.recastAt > RECAST_HOLD_MS) {
         this.recastAt = 0;
-        const w = p.isDown ? this.cameras.main.getWorldPoint(p.x, p.y) : new Phaser.Math.Vector2(this.angler.x + this.facing * 80, LAKE_HORIZON + 30);
+        const w = p.isDown ? this.cams.world.getWorldPoint(p.x, p.y) : new Phaser.Math.Vector2(this.angler.x + this.facing * 80, LAKE_HORIZON + 30);
         this.phase = 'loading';
         this.loadTime = 0;
         this.aimAt(w.x, w.y);
@@ -464,11 +465,10 @@ export class FishScene extends Phaser.Scene {
     }
     // Bugs over the water during a hatch.
     const hatch = hatchAt(this.hour);
-    const cam = this.cameras.main;
     this.bugs.forEach((b, i) => {
       b.setVisible(!!hatch);
       if (!hatch) return;
-      const x = cam.scrollX + ((i * 53 + this.time.now / 40) % VIEW_W);
+      const x = this.viewLeft + ((i * 53 + this.time.now / 40) % VIEW_W);
       const y = LAKE_HORIZON + 30 - ((this.time.now / 25 + i * 37) % 60) + Math.sin(this.time.now / 200 + i) * 3;
       b.setPosition(Math.round(x), Math.round(y)).setFillStyle(hatch === 'mayfly' ? 0xd8d8c8 : 0xc8a870);
     });
@@ -554,8 +554,8 @@ export class FishScene extends Phaser.Scene {
 
   private hand(): Phaser.Math.Vector2 {
     const s = this.angler;
-    const col = this.facing === 1 ? HAND.x : s.width - 1 - HAND.x;
-    return new Phaser.Math.Vector2(s.x - s.width / 2 + col, s.y - s.height + HAND.y);
+    const col = this.facing === 1 ? HAND.x : s.displayWidth - 1 - HAND.x;
+    return new Phaser.Math.Vector2(s.x - s.displayWidth / 2 + col, s.y - s.displayHeight + HAND.y);
   }
 
   private rodTip(): Phaser.Math.Vector2 {
@@ -632,7 +632,7 @@ export class FishScene extends Phaser.Scene {
       this.jumpSprite?.setVisible(false);
       return;
     }
-    this.jumpSprite ??= this.add.image(0, 0, key).setDepth(21);
+    this.jumpSprite ??= spriteImage(this, 0, 0, key).setDepth(21);
     const t = this.hooked;
     this.jumpSprite.setTexture(key).setVisible(true).setFlipX(t.x < this.angler.x);
     this.jumpSprite.setPosition(Math.round(t.x), Math.round(t.y - (jumping ? 14 : 2))).setAngle(jumping ? (t.x < this.angler.x ? 20 : -20) : 0);
@@ -691,7 +691,6 @@ export class FishScene extends Phaser.Scene {
     this.summary.newLessons = this.state.lessons.length - this.lessonsAtStart;
     clearHud();
     note(message);
-    this.cameras.main.fadeOut(600, 0, 0, 0);
-    this.cameras.main.once('camerafadeoutcomplete', () => this.onEnd(this.summary));
+    this.cams.fadeOut(600, () => this.onEnd(this.summary));
   }
 }

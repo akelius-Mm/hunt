@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { nextDay } from './core/economy';
 import { clearSave, load, newGame, save } from './core/state';
-import { VIEW_H, VIEW_W } from './art/view';
+import { SCREEN_H, SCREEN_W } from './art/view';
 import { CampScene } from './scenes/CampScene';
 import { FishScene, type FishSummary } from './scenes/FishScene';
 import { HuntScene, type HuntSummary } from './scenes/HuntScene';
@@ -14,8 +14,8 @@ let state = load() ?? newGame();
 const game = new Phaser.Game({
   type: Phaser.AUTO,
   parent: 'game',
-  width: VIEW_W,
-  height: VIEW_H,
+  width: SCREEN_W,
+  height: SCREEN_H,
   pixelArt: true,
   backgroundColor: '#12160f',
   scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
