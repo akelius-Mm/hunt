@@ -3,7 +3,7 @@ import { animal } from '../src/data/animals';
 import { ITEMS } from '../src/data/items';
 import { LESSONS } from '../src/data/lessons';
 import { fish } from '../src/data/fish';
-import { cannotFish, cannotKeep, castQuality, hatchAt, stepFight, strikeRate, type FightState } from '../src/core/fishing';
+import { cannotFish, cannotKeep, castQuality, hatchAt, newFight, running, stepFight, strikeRate } from '../src/core/fishing';
 import { buy, canBuy, donateMeat, nextDay, sell, sellPrice } from '../src/core/economy';
 import { checkShot, harvest, resolveShot, senses, zoneAt, type SenseContext } from '../src/core/hunting';
 import { addItem, newGame } from '../src/core/state';
@@ -222,6 +222,7 @@ describe('fly fishing', () => {
 
   it('a sloppy cast catches less', () => {
     expect(castQuality(0)).toBe(1);
+    expect(castQuality(0.05)).toBe(1);
     expect(castQuality(0.5)).toBe(0);
     expect(strikeRate(rainbow, 'nymph', 12, 1)).toBeGreaterThan(strikeRate(rainbow, 'nymph', 12, 0));
   });
@@ -232,22 +233,28 @@ describe('fly fishing', () => {
     expect(cannotKeep(rainbow, 14, 1)).toBe(null);
   });
 
-  it('snaps when you reel through a surge, throws the hook on slack', () => {
-    const calm = () => 0.99;
-    const f: FightState = { tension: 50, progress: 0, slack: 0, surge: 0 };
+  it('just holding to reel lands a fish that is not running', () => {
+    const f = newFight();
     let r = 'on';
-    for (let i = 0; i < 400 && r === 'on'; i++) r = stepFight(f, true, 1, 0.05, calm);
+    for (let i = 0; i < 2000 && r === 'on'; i++) r = stepFight(f, true, 1, 0.05, () => 0.99);
+    expect(r).toBe('landed');
+  });
+
+  it('snaps only when you keep cranking through hard runs, throws the hook on slack', () => {
+    const f = newFight();
+    let r = 'on';
+    for (let i = 0; i < 400 && r === 'on'; i++) r = stepFight(f, true, 2, 0.05, () => 0);
     expect(r).toBe('snapped');
-    const g: FightState = { tension: 50, progress: 0, slack: 0, surge: 0 };
+    const g = newFight();
     r = 'on';
-    for (let i = 0; i < 400 && r === 'on'; i++) r = stepFight(g, false, 1, 0.05, calm);
+    for (let i = 0; i < 400 && r === 'on'; i++) r = stepFight(g, false, 1, 0.05, () => 0.99);
     expect(r).toBe('thrown');
   });
 
   it('lands a fish when you keep tension in the zone', () => {
-    const f: FightState = { tension: 50, progress: 0, slack: 0, surge: 0 };
+    const f = newFight();
     let r = 'on';
-    for (let i = 0; i < 2000 && r === 'on'; i++) r = stepFight(f, f.tension < 65, 1, 0.05, () => 0.99);
+    for (let i = 0; i < 2000 && r === 'on'; i++) r = stepFight(f, !running(f, 1.5), 1.5, 0.05);
     expect(r).toBe('landed');
   });
 });
