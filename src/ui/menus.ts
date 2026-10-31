@@ -12,10 +12,13 @@ import {
   type Basket,
 } from '../core/trade';
 import type { GameState, ItemCategory } from '../core/types';
+import type { HuntSummary } from '../scenes/HuntScene';
 import { ANIMALS, AREAS } from '../data/animals';
 import { ITEMS, item } from '../data/items';
 import { LESSONS, PASS_SCORE, QUIZ } from '../data/lessons';
 import { teach } from './cards';
+import { iconImg } from '../art/icons';
+import { drawStore } from '../art/storefront';
 
 const ui = () => document.getElementById('ui')!;
 
@@ -137,66 +140,121 @@ function tabs(root: HTMLElement, names: [string, string][], current: string, pic
 // ---------- Outfitter ----------
 
 const SHOP_TABS: [ItemCategory | 'sell', string][] = [
-  ['license', 'Licenses & tags'],
-  ['weapon', 'Firearms & bows'],
+  ['license', 'Licenses'],
+  ['weapon', 'Guns & bows'],
   ['ammo', 'Ammo'],
   ['gear', 'Gear'],
   ['sell', 'Sell'],
 ];
 
+const MAE_HELLO = '"Welcome in! Tap anything and I\'ll tell you what it\'s for. Knowing your gear is half of hunting."';
+
 export function openShop(state: GameState, onClose: () => void, tab: string = 'license'): void {
-  const { root, body, setMoney } = modal('Trailhead Outfitters', state, onClose);
-  const openTips = new Set<string>();
+  const { root, body, setMoney } = modal('Trailhead Outfitters', state, () => {
+    window.clearInterval(blinker);
+    onClose();
+  });
+  root.querySelector('.tabs')!.remove();
+  let selected: string | null = null;
+  let say = MAE_HELLO;
+
+  body.classList.add('store');
+  body.innerHTML = `
+    <div class="store-scene">
+      <canvas class="store-art" aria-label="Mae behind the counter at Trailhead Outfitters"></canvas>
+      <div class="bubble" aria-live="polite"></div>
+    </div>
+    <div class="store-side">
+      <div class="store-tabs"></div>
+      <div class="grid"></div>
+      <div class="detail"></div>
+    </div>`;
+  const art = body.querySelector('canvas') as HTMLCanvasElement;
+  drawStore(art);
+  // Mae blinks every few seconds.
+  const blinker = window.setInterval(() => {
+    drawStore(art, true);
+    window.setTimeout(() => drawStore(art), 140);
+  }, 3800);
+
+  const items = () =>
+    tab === 'sell'
+      ? ITEMS.filter((i) => i.sellPrice !== undefined && count(state, i.id) > 0)
+      : ITEMS.filter((i) => i.category === tab);
 
   const render = () => {
     setMoney();
-    tabs(root, SHOP_TABS, tab, (t) => {
-      tab = t;
-      render();
-    });
     const off = discount(state);
-    let html = `<p class="say">Mae, the clerk: "Ask me about anything. Knowing your gear is half of hunting."${
-      off > 0 ? ` <b class="right">Community discount: ${Math.round(off * 100)}%</b>` : ''
-    }</p>`;
-    if (tab === 'sell') {
-      const loot = ITEMS.filter((i) => i.sellPrice !== undefined && count(state, i.id) > 0);
-      if (!loot.length) html += '<p>You have nothing to sell yet. Hides, tails, feathers and antlers from your hunts sell here. Meat cannot be sold.</p>';
-      for (const i of loot) {
-        const d = demandOf(state, i.id);
-        html += `<div class="row">
-          <div><div class="name">${i.name} <span class="owned">×${count(state, i.id)}</span></div>
-          <div class="summary">${i.summary} · Demand ${Math.round(d * 100)}%${d < 1 ? ' (recovers daily)' : ''}</div></div>
-          <div class="price">$${sellPrice(state, i.id)}</div>
-          <div><button data-sell="${i.id}">Sell 1</button> <button data-sellall="${i.id}">Sell all</button></div>
-          ${openTips.has(i.id) ? `<div class="tip">${i.tip}</div>` : ''}
-        </div>`;
-      }
+    (body.querySelector('.bubble') as HTMLElement).innerHTML = `<b>Mae</b> ${say}${
+      off > 0 ? `<div class="right">Community discount: ${Math.round(off * 100)}% off</div>` : ''
+    }`;
+    body.querySelector('.store-tabs')!.innerHTML = SHOP_TABS.map(
+      ([id, label]) => `<button data-tab="${id}" class="${id === tab ? 'on' : ''}">${label}</button>`,
+    ).join('');
+
+    const list = items();
+    const grid = body.querySelector('.grid') as HTMLElement;
+    if (tab === 'sell' && !list.length) {
+      grid.innerHTML = '<p class="owned">Nothing to sell yet. Pelts, tails, feathers, hides and antlers from your hunts sell here. Bring a knife, or you only get the meat.</p>';
     } else {
-      for (const i of ITEMS.filter((x) => x.category === tab)) {
-        const check = canBuy(state, i.id);
-        const owned = count(state, i.id);
-        html += `<div class="row">
-          <div><div class="name">${i.name} ${owned ? `<span class="owned">(have ${owned})</span>` : ''}</div>
-          <div class="summary">${i.summary}</div>
-          ${check.ok ? '' : `<div class="reason">${check.reason}</div>`}</div>
-          <div class="price">$${buyPrice(state, i.id)}</div>
-          <div><button data-tip="${i.id}">Ask Mae</button> <button class="primary" data-buy="${i.id}" ${check.ok ? '' : 'disabled'}>Buy</button></div>
-          ${openTips.has(i.id) ? `<div class="tip">${i.tip}</div>` : ''}
-        </div>`;
-      }
+      grid.innerHTML = list
+        .map((i) => {
+          const owned = count(state, i.id);
+          const price = tab === 'sell' ? sellPrice(state, i.id) : buyPrice(state, i.id);
+          const locked = tab !== 'sell' && !canBuy(state, i.id).ok;
+          return `<button class="tile ${selected === i.id ? 'sel' : ''} ${locked ? 'locked' : ''}" data-item="${i.id}" title="${i.name}">
+            ${iconImg(i.id)}
+            <span class="tprice">$${price}</span>
+            ${owned ? `<span class="badge">${tab === 'sell' || !i.unique ? owned : '✓'}</span>` : ''}
+          </button>`;
+        })
+        .join('');
     }
-    body.innerHTML = html;
+
+    const detail = body.querySelector('.detail') as HTMLElement;
+    if (tab === 'sell' && list.length) {
+      const total = list.reduce((sum, i) => sum + sellPrice(state, i.id) * count(state, i.id), 0);
+      const sel = selected && list.some((i) => i.id === selected) ? item(selected) : null;
+      detail.innerHTML = `
+        ${sel ? `<div class="drow">${iconImg(sel.id, 'icon big')}<div><div class="name">${sel.name} ×${count(state, sel.id)}</div>
+          <div class="summary">$${sellPrice(state, sel.id)} each · Demand ${Math.round(demandOf(state, sel.id) * 100)}%${demandOf(state, sel.id) < 1 ? ', recovers daily' : ''}</div></div></div>
+          <div class="dbtns"><button data-sell="${sel.id}">Sell 1</button><button data-sellall="${sel.id}">Sell all ${count(state, sel.id)}</button></div>` : ''}
+        <button class="primary wide" data-sellhaul>Sell everything · about $${total}</button>`;
+    } else if (selected && list.some((i) => i.id === selected)) {
+      const i = item(selected);
+      const check = canBuy(state, i.id);
+      detail.innerHTML = `
+        <div class="drow">${iconImg(i.id, 'icon big')}<div><div class="name">${i.name}${count(state, i.id) ? ` <span class="owned">(have ${count(state, i.id)})</span>` : ''}</div>
+          <div class="summary">${i.summary}</div>
+          ${check.ok ? '' : `<div class="reason">${check.reason}</div>`}</div></div>
+        <div class="dbtns"><span class="price">$${buyPrice(state, i.id)}</span><button class="primary" data-buy="${i.id}" ${check.ok ? '' : 'disabled'}>Buy</button></div>`;
+    } else {
+      detail.innerHTML = `<p class="owned">${tab === 'sell' ? '' : 'Tap an item to see what it\'s for.'}</p>`;
+    }
   };
 
   on(body, 'button', (t) => {
     const d = t.dataset;
-    if (d.tip) openTips.has(d.tip) ? openTips.delete(d.tip) : openTips.add(d.tip);
+    if (d.tab) {
+      tab = d.tab;
+      selected = null;
+      say = tab === 'sell' ? '"Let\'s see what you brought me. Hides, pelts, tails and feathers. Meat stays with you, that\'s the law."' : MAE_HELLO;
+    }
+    if (d.item) {
+      selected = d.item;
+      say = `"${item(d.item).tip}"`;
+    }
     if (d.buy) {
       buy(state, d.buy);
-      openTips.add(d.buy);
+      say = '"Good choice. Take care of it and it\'ll take care of you."';
     }
     if (d.sell) sell(state, d.sell, 1);
     if (d.sellall) sell(state, d.sellall, count(state, d.sellall));
+    if (t.hasAttribute('data-sellhaul')) {
+      const earned = items().reduce((sum, i) => sum + sell(state, i.id, count(state, i.id)), 0);
+      say = `"That comes to $${earned}. Pleasure doing business!"`;
+      selected = null;
+    }
     render();
   });
   render();
@@ -423,11 +481,53 @@ function openAreaSelect(state: GameState, actions: CampActions): void {
   });
 }
 
-export function showSummary(lines: string[], onDone: () => void): void {
-  const box = el(`<div class="summary-box pix"><h2>Back at camp</h2>${lines.map((l) => `<p>${l}</p>`).join('')}<button class="primary">Continue</button></div>`);
-  box.querySelector('button')!.addEventListener('click', () => {
+/** After a hunt: what you brought back, with one tap to sell it all to Mae. */
+export function showHaul(state: GameState, s: HuntSummary, onDone: () => void): void {
+  const haul = Object.entries(s.items).filter(([id]) => item(id).sellPrice !== undefined);
+  const value = haul.reduce((sum, [id, q]) => sum + sellPrice(state, id) * Math.min(q, count(state, id)), 0);
+  const notes = [
+    s.harvested.length ? `Harvested: ${s.harvested.join(', ')}` : 'No harvest today. Every hunt teaches something.',
+    s.meatLbs ? `+${s.meatLbs} lbs of meat in the freezer` : '',
+    s.fines ? `<span class="wrong">Fines paid: $${s.fines}</span>` : '',
+    s.newLessons ? `${s.newLessons} new lesson${s.newLessons > 1 ? 's' : ''} in your journal` : '',
+  ].filter(Boolean);
+
+  const box = el(`
+    <div class="summary-box pix haul">
+      <h2>Back at camp</h2>
+      <div class="sub">${s.areaName} · now day ${state.day}</div>
+      ${haul.length ? `<div class="haul-grid">${haul.map(([id, q]) => `
+        <div class="haul-item">${iconImg(id, 'icon big')}<div><b>${item(id).name}</b> ×${q}<br><span class="price">$${sellPrice(state, id)} each</span></div></div>`).join('')}</div>` : ''}
+      <ul class="facts">${notes.map((n) => `<li>${n}</li>`).join('')}</ul>
+      <div class="haul-total">Your money: <span class="money">$${state.money}</span></div>
+      <div class="dbtns">
+        ${haul.length ? `<button class="primary" data-sell>Sell haul to Mae · $${value}</button><button data-keep>Keep it</button>` : '<button class="primary" data-keep>Continue</button>'}
+      </div>
+      ${haul.length ? '<p class="owned">Keep pelts and hides to trade with Old Hollis. He pays more for them in gear.</p>' : ''}
+    </div>`);
+  const close = () => {
     box.remove();
     onDone();
+  };
+  box.querySelector('[data-keep]')!.addEventListener('click', close);
+  box.querySelector('[data-sell]')?.addEventListener('click', (e) => {
+    const start = state.money;
+    for (const [id, q] of haul) sell(state, id, Math.min(q, count(state, id)));
+    const earned = state.money - start;
+    // Count the money up, like a register.
+    const money = box.querySelector('.haul-total .money') as HTMLElement;
+    const t0 = performance.now();
+    const tick = (now: number) => {
+      const f = Math.min(1, (now - t0) / 700);
+      money.textContent = `$${Math.round(start + earned * f)}`;
+      if (f < 1) requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+    (e.currentTarget as HTMLElement).replaceWith(el(`<span class="right">Sold for $${earned}!</span>`));
+    const keep = box.querySelector('[data-keep]') as HTMLElement;
+    keep.textContent = 'Continue';
+    keep.classList.add('primary');
+    box.querySelectorAll('.haul-item').forEach((n) => n.classList.add('sold'));
   });
   ui().append(box);
 }
